@@ -13,7 +13,8 @@ from app.schemas.statistics import (
     MonthlyVolumeItem, MonthlyVolumeResponse,
     TopClient, TopClientsResponse,
     DestinationStats, DestinationStatsResponse,
-    StatisticsResponse, StatusDistribution, DailyTrend
+    StatisticsResponse, StatusDistribution, DailyTrend,
+    RouteStats, RoutesResponse, AirlineStats, AirlinesResponse
 )
 from app.services.document_service import DocumentService
 
@@ -109,19 +110,20 @@ class StatisticsService:
         
         doc_results = self.db.execute(doc_query).all()
         
-        # Shipments by month
+        # Shipments by month (shipment_date is also stored as timestamp in ms)
+        ship_date_as_ts = func.to_timestamp(Shipment.shipment_date / 1000)
         ship_query = select(
-            extract('year', Shipment.shipment_date).label('year'),
-            extract('month', Shipment.shipment_date).label('month'),
+            extract('year', ship_date_as_ts).label('year'),
+            extract('month', ship_date_as_ts).label('month'),
             func.count(Shipment.id).label('count')
         ).where(
             and_(
-                Shipment.shipment_date >= start_date,
-                Shipment.shipment_date <= end_date
+                Shipment.shipment_date >= start_ts,
+                Shipment.shipment_date <= end_ts
             )
         ).group_by(
-            extract('year', Shipment.shipment_date),
-            extract('month', Shipment.shipment_date)
+            extract('year', ship_date_as_ts),
+            extract('month', ship_date_as_ts)
         ).order_by('year', 'month')
         
         ship_results = self.db.execute(ship_query).all()
@@ -423,4 +425,178 @@ class StatisticsService:
             )
         )
         return self.db.execute(query).scalar() or 0
+    
+    # Mapping des préfixes AWB vers les compagnies aériennes
+    AIRLINE_PREFIXES = {
+        "001": "American Airlines",
+        "006": "Delta Air Lines",
+        "014": "Air Canada",
+        "016": "United Airlines",
+        "020": "Lufthansa",
+        "027": "Air India",
+        "045": "Aeroméxico",
+        "055": "Air France",
+        "057": "Air France",
+        "071": "Ethiopian Airlines",
+        "074": "KLM Royal Dutch",
+        "077": "TAP Air Portugal",
+        "079": "TAM Airlines",
+        "081": "Qantas",
+        "083": "South African Airways",
+        "098": "Asiana Airlines",
+        "105": "British Airways",
+        "114": "Japan Airlines",
+        "117": "SAS Scandinavian",
+        "118": "Singapore Airlines",
+        "125": "Emirates",
+        "131": "Japan Airlines",
+        "139": "China Eastern",
+        "147": "Air France Cargo",
+        "157": "Qatar Airways",
+        "160": "Cathay Pacific",
+        "172": "EVA Air",
+        "176": "Emirates",
+        "180": "Korean Air",
+        "205": "All Nippon Airways",
+        "217": "Thai Airways",
+        "220": "Lufthansa Cargo",
+        "235": "Turkish Airlines",
+        "258": "Air Algérie",
+        "279": "Royal Air Maroc",
+        "297": "ASKY Airlines",
+        "302": "Air Austral",
+        "369": "Air China",
+        "580": "China Southern",
+        "618": "Air China Cargo",
+        "695": "China Cargo Airlines",
+        "706": "Wamos Air",
+        "729": "LATAM Cargo",
+        "781": "TAAG Angola",
+        "837": "Saudia Cargo",
+        "932": "Kenya Airways",
+    }
+    
+    def get_routes_stats(self, limit: int = 20) -> RoutesResponse:
+        """Get route statistics (origin -> destination)."""
+        total = self._count_table(Document)
+        
+        # Get routes with counts
+        query = select(
+            Document.origin,
+            Document.destination,
+            func.count(Document.id).label('count')
+        ).where(
+            and_(
+                Document.origin.isnot(None),
+                Document.destination.isnot(None),
+                Document.origin != '',
+                Document.destination != ''
+            )
+        ).group_by(
+            Document.origin,
+            Document.destination
+        ).order_by(
+            func.count(Document.id).desc()
+        ).limit(limit)
+        
+        results = self.db.execute(query).all()
+        
+        routes = []
+        for origin, dest, count in results:
+            # Normalize destination (extract airport code)
+            dest_code = self._extract_airport_code(dest)
+            origin_code = origin.strip().upper() if origin else ""
+            
+            routes.append(RouteStats(
+                origin=origin_code,
+                origin_name=self._get_airport_name(origin_code),
+                destination=dest_code,
+                destination_name=self._get_airport_name(dest_code) or dest.strip(),
+                count=count,
+                percentage=round((count / total * 100) if total > 0 else 0, 2)
+            ))
+        
+        # Find main hub (most common origin)
+        main_hub = None
+        if routes:
+            origins = {}
+            for r in routes:
+                origins[r.origin] = origins.get(r.origin, 0) + r.count
+            main_hub = max(origins, key=origins.get) if origins else None
+        
+        return RoutesResponse(
+            routes=routes,
+            total_routes=len(results),
+            main_hub=main_hub
+        )
+    
+    def get_airlines_stats(self, limit: int = 10) -> AirlinesResponse:
+        """Get airline statistics based on AWB prefixes."""
+        # Extract prefix from document_number (first 3 chars using LEFT function)
+        prefix_expr = func.left(Document.document_number, 3)
+        
+        query = select(
+            prefix_expr.label('prefix'),
+            func.count(Document.id).label('count')
+        ).where(
+            Document.document_number.isnot(None)
+        ).group_by(
+            prefix_expr
+        ).order_by(
+            func.count(Document.id).desc()
+        ).limit(limit)
+        
+        results = self.db.execute(query).all()
+        total = sum(count for _, count in results)
+        
+        airlines = []
+        for prefix, count in results:
+            if prefix:
+                airline_name = self.AIRLINE_PREFIXES.get(
+                    prefix, 
+                    f"Airline ({prefix})"
+                )
+                airlines.append(AirlineStats(
+                    prefix=prefix,
+                    airline_name=airline_name,
+                    count=count,
+                    percentage=round((count / total * 100) if total > 0 else 0, 2)
+                ))
+        
+        return AirlinesResponse(
+            airlines=airlines,
+            total_awbs=total
+        )
+    
+    def _extract_airport_code(self, destination: str) -> str:
+        """Extract airport code from destination string."""
+        if not destination:
+            return ""
+        
+        dest = destination.strip().upper()
+        
+        # Common patterns: "MONTREAL YUL", "CAIRO   CAI", "KUWAIT  KWI"
+        parts = dest.split()
+        
+        # If last part is 3 letters, it's likely the code
+        if len(parts) > 1 and len(parts[-1]) == 3 and parts[-1].isalpha():
+            return parts[-1]
+        
+        # Known mappings for inconsistent data
+        code_mapping = {
+            "MONTREAL": "YUL",
+            "KUWAIT": "KWI",
+            "LAGOS": "LOS",
+            "BAGDAD": "BGW",
+            "MALDIVES": "MLE",
+            "KINSHASA": "FIH",
+            "KINSHASHA": "FIH",
+        }
+        
+        for city, code in code_mapping.items():
+            if city in dest:
+                return code
+        
+        # Return first 3 chars as fallback
+        return dest[:3] if len(dest) >= 3 else dest
 

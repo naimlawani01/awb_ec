@@ -115,3 +115,34 @@ class KPIResponse(BaseModel):
     peak_hour: Optional[int] = None
     busiest_route: Optional[str] = None
 
+
+class RouteStats(BaseModel):
+    """Route statistics (origin -> destination)."""
+    origin: str
+    origin_name: Optional[str] = None
+    destination: str
+    destination_name: Optional[str] = None
+    count: int
+    percentage: float
+
+
+class AirlineStats(BaseModel):
+    """Airline statistics based on AWB prefix."""
+    prefix: str
+    airline_name: str
+    count: int
+    percentage: float
+
+
+class RoutesResponse(BaseModel):
+    """Routes statistics response."""
+    routes: List[RouteStats]
+    total_routes: int
+    main_hub: Optional[str] = None
+
+
+class AirlinesResponse(BaseModel):
+    """Airlines statistics response."""
+    airlines: List[AirlineStats]
+    total_awbs: int
+

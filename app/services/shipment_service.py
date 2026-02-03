@@ -8,6 +8,13 @@ from app.models.awb_models import Shipment, ShipmentAttachedFile
 from app.schemas.shipment import ShipmentSearchParams
 
 
+def _date_to_timestamp(d: date) -> int:
+    """Convert date to Unix timestamp in milliseconds."""
+    if isinstance(d, datetime):
+        return int(d.timestamp() * 1000)
+    return int(datetime.combine(d, datetime.min.time()).timestamp() * 1000)
+
+
 class ShipmentService:
     """Service for shipment operations."""
     
@@ -76,10 +83,13 @@ class ShipmentService:
                 filters.append(Shipment.destination.ilike(f"%{search_params.destination}%"))
             
             if search_params.start_date:
-                filters.append(Shipment.shipment_date >= search_params.start_date)
+                start_ts = _date_to_timestamp(search_params.start_date)
+                filters.append(Shipment.shipment_date >= start_ts)
             
             if search_params.end_date:
-                filters.append(Shipment.shipment_date <= search_params.end_date)
+                # End of day for end date
+                end_ts = _date_to_timestamp(search_params.end_date + timedelta(days=1)) - 1
+                filters.append(Shipment.shipment_date <= end_ts)
             
             if search_params.import_export is not None:
                 filters.append(Shipment.import_export == search_params.import_export)
@@ -158,10 +168,13 @@ class ShipmentService:
         end_date: date
     ) -> List[Shipment]:
         """Get shipments within a date range."""
+        start_ts = _date_to_timestamp(start_date)
+        end_ts = _date_to_timestamp(end_date + timedelta(days=1)) - 1
+        
         query = select(Shipment).where(
             and_(
-                Shipment.shipment_date >= start_date,
-                Shipment.shipment_date <= end_date
+                Shipment.shipment_date >= start_ts,
+                Shipment.shipment_date <= end_ts
             )
         ).order_by(Shipment.shipment_date.desc())
         
@@ -169,9 +182,9 @@ class ShipmentService:
     
     def get_recent_shipments(self, days: int = 7, limit: int = 50) -> List[Shipment]:
         """Get recently created shipments."""
-        cutoff_date = date.today() - timedelta(days=days)
+        cutoff_ts = _date_to_timestamp(date.today() - timedelta(days=days))
         query = select(Shipment).where(
-            Shipment.shipment_date >= cutoff_date
+            Shipment.shipment_date >= cutoff_ts
         ).order_by(Shipment.shipment_date.desc()).limit(limit)
         
         return self.db.execute(query).scalars().all()

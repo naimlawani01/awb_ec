@@ -9,7 +9,8 @@ from app.core.security import require_viewer
 from app.services.statistics_service import StatisticsService
 from app.schemas.statistics import (
     StatisticsResponse, MonthlyVolumeResponse,
-    TopClientsResponse, DestinationStatsResponse
+    TopClientsResponse, DestinationStatsResponse,
+    RoutesResponse, AirlinesResponse
 )
 
 router = APIRouter()
@@ -144,4 +145,30 @@ async def get_trend_data(
             for o in stats.top_origins
         ],
     }
+
+
+@router.get("/routes", response_model=RoutesResponse)
+async def get_routes_statistics(
+    limit: int = Query(20, ge=1, le=100),
+    current_user: dict = Depends(require_viewer),
+    db: Session = Depends(get_awb_db),
+):
+    """
+    Get route statistics (origin -> destination).
+    """
+    service = StatisticsService(db)
+    return service.get_routes_stats(limit)
+
+
+@router.get("/airlines", response_model=AirlinesResponse)
+async def get_airlines_statistics(
+    limit: int = Query(10, ge=1, le=50),
+    current_user: dict = Depends(require_viewer),
+    db: Session = Depends(get_awb_db),
+):
+    """
+    Get airline statistics based on AWB prefixes.
+    """
+    service = StatisticsService(db)
+    return service.get_airlines_stats(limit)
 
