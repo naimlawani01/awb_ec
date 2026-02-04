@@ -14,16 +14,7 @@ from app.schemas.contact import (
 )
 
 
-def timestamp_to_datetime(ts) -> Optional[datetime]:
-    """Convert Unix timestamp in milliseconds to datetime."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts
-    try:
-        return datetime.fromtimestamp(ts / 1000)
-    except (ValueError, OSError, TypeError):
-        return None
+# No longer needed - using proper DateTime types
 
 router = APIRouter()
 
@@ -279,7 +270,7 @@ async def get_contact_documents(
                 "consignee": doc.consignee,
                 "origin": doc.origin,
                 "destination": doc.destination,
-                "document_date": timestamp_to_datetime(doc.document_date),
+                "document_date": doc.document_date,
             }
             for doc in documents
         ]

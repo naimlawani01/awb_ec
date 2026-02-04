@@ -68,9 +68,9 @@ class Document(AWBBase):
     document_number = Column(String(50))
     master_document_number = Column(String(50))
     reference_number = Column(String(50))
-    date_created = Column(BigInteger)  # Unix timestamp
-    date_modified = Column(BigInteger)  # Unix timestamp
-    document_date = Column(BigInteger)  # Unix timestamp
+    date_created = Column(DateTime)
+    date_modified = Column(DateTime)
+    document_date = Column(DateTime)
     created_by = Column(Integer)
     modified_by = Column(Integer)
     owner = Column(Integer)
@@ -190,7 +190,7 @@ class Shipment(AWBBase):
     consignee_contact_id = Column(Integer)
     also_notify_contact_id = Column(Integer)
     freight_forwarder_contact_id = Column(Integer)
-    shipment_date = Column(BigInteger, nullable=False)  # Unix timestamp (ms)
+    shipment_date = Column(DateTime, nullable=False)
     import_export = Column(SmallInteger)
     shipment_type = Column(SmallInteger)
     master_number = Column(String(20))
@@ -204,8 +204,8 @@ class Shipment(AWBBase):
     event_status = Column(String(4))
     customs_status = Column(SmallInteger, default=0)
     transport = Column(SmallInteger, default=1)
-    scheduled_carrier_arrival_datetime = Column(BigInteger)  # Unix timestamp (ms)
-    actual_carrier_arrival_datetime = Column(BigInteger)  # Unix timestamp (ms)
+    scheduled_carrier_arrival_datetime = Column(DateTime)
+    actual_carrier_arrival_datetime = Column(DateTime)
     summary = Column(LargeBinary)
     shipment_additional_info = Column(LargeBinary)
     

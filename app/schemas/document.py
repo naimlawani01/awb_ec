@@ -1,7 +1,7 @@
 """Document (AWB) schemas for API validation."""
 from datetime import datetime
-from typing import Optional, List, Any
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List
+from pydantic import BaseModel, Field
 
 
 class DocumentBase(BaseModel):
@@ -31,22 +31,6 @@ class DocumentResponse(DocumentBase):
     owner: Optional[int] = None
     tags: Optional[str] = None
     
-    @field_validator('date_created', 'date_modified', 'document_date', mode='before')
-    @classmethod
-    def convert_timestamp_to_datetime(cls, v: Any) -> Optional[datetime]:
-        """Convert Unix timestamp in milliseconds (bigint) to datetime."""
-        if v is None:
-            return None
-        if isinstance(v, datetime):
-            return v
-        if isinstance(v, (int, float)):
-            try:
-                # Convert milliseconds to seconds
-                return datetime.fromtimestamp(v / 1000)
-            except (ValueError, OSError):
-                return None
-        return v
-    
     class Config:
         from_attributes = True
 
@@ -63,22 +47,6 @@ class DocumentListItem(BaseModel):
     destination: Optional[str] = None
     document_date: Optional[datetime] = None
     date_created: Optional[datetime] = None
-    
-    @field_validator('document_date', 'date_created', mode='before')
-    @classmethod
-    def convert_timestamp_to_datetime(cls, v: Any) -> Optional[datetime]:
-        """Convert Unix timestamp in milliseconds (bigint) to datetime."""
-        if v is None:
-            return None
-        if isinstance(v, datetime):
-            return v
-        if isinstance(v, (int, float)):
-            try:
-                # Convert milliseconds to seconds
-                return datetime.fromtimestamp(v / 1000)
-            except (ValueError, OSError):
-                return None
-        return v
     
     class Config:
         from_attributes = True

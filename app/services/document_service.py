@@ -9,9 +9,7 @@ from app.models.awb_models import Document, DocumentLog
 from app.schemas.document import DocumentSearchParams
 
 
-def date_to_timestamp(d: datetime) -> int:
-    """Convert a datetime to Unix timestamp in milliseconds."""
-    return int(d.timestamp() * 1000)
+# No longer needed - using proper DateTime types
 
 
 class DocumentService:
@@ -73,12 +71,10 @@ class DocumentService:
                 filters.append(Document.destination.ilike(f"%{search_params.destination}%"))
             
             if search_params.start_date:
-                start_ts = date_to_timestamp(search_params.start_date)
-                filters.append(Document.document_date >= start_ts)
+                filters.append(Document.document_date >= search_params.start_date)
             
             if search_params.end_date:
-                end_ts = date_to_timestamp(search_params.end_date)
-                filters.append(Document.document_date <= end_ts)
+                filters.append(Document.document_date <= search_params.end_date)
             
             if search_params.status is not None:
                 filters.append(Document.status == search_params.status)
@@ -168,12 +164,10 @@ class DocumentService:
         end_date: datetime
     ) -> List[Document]:
         """Get documents within a date range."""
-        start_ts = date_to_timestamp(start_date)
-        end_ts = date_to_timestamp(end_date)
         query = select(Document).where(
             and_(
-                Document.document_date >= start_ts,
-                Document.document_date <= end_ts
+                Document.document_date >= start_date,
+                Document.document_date <= end_date
             )
         ).order_by(Document.document_date.desc())
         
@@ -182,9 +176,8 @@ class DocumentService:
     def get_recent_documents(self, days: int = 7, limit: int = 50) -> List[Document]:
         """Get recently created documents."""
         cutoff_date = datetime.utcnow() - timedelta(days=days)
-        cutoff_ts = date_to_timestamp(cutoff_date)
         query = select(Document).where(
-            Document.date_created >= cutoff_ts
+            Document.date_created >= cutoff_date
         ).order_by(Document.date_created.desc()).limit(limit)
         
         return self.db.execute(query).scalars().all()

@@ -85,45 +85,39 @@ class StatisticsService:
         if not start_date:
             start_date = end_date - timedelta(days=365)
         
-        start_ts = self._date_to_timestamp(start_date)
-        end_ts = self._date_to_timestamp(end_date + timedelta(days=1)) - 1
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        end_datetime = datetime.combine(end_date, datetime.max.time())
         
-        # Convert timestamp to date for extraction
-        # Use to_timestamp() to convert bigint (in milliseconds) to timestamp
-        # Divide by 1000 since timestamps are stored in milliseconds
-        doc_date_as_ts = func.to_timestamp(Document.document_date / 1000)
-        
-        # Documents by month
+        # Documents by month - using proper DateTime column
         doc_query = select(
-            extract('year', doc_date_as_ts).label('year'),
-            extract('month', doc_date_as_ts).label('month'),
+            extract('year', Document.document_date).label('year'),
+            extract('month', Document.document_date).label('month'),
             func.count(Document.id).label('count')
         ).where(
             and_(
-                Document.document_date >= start_ts,
-                Document.document_date <= end_ts
+                Document.document_date >= start_datetime,
+                Document.document_date <= end_datetime
             )
         ).group_by(
-            extract('year', doc_date_as_ts),
-            extract('month', doc_date_as_ts)
+            extract('year', Document.document_date),
+            extract('month', Document.document_date)
         ).order_by('year', 'month')
         
         doc_results = self.db.execute(doc_query).all()
         
-        # Shipments by month (shipment_date is also stored as timestamp in ms)
-        ship_date_as_ts = func.to_timestamp(Shipment.shipment_date / 1000)
+        # Shipments by month - using proper DateTime column
         ship_query = select(
-            extract('year', ship_date_as_ts).label('year'),
-            extract('month', ship_date_as_ts).label('month'),
+            extract('year', Shipment.shipment_date).label('year'),
+            extract('month', Shipment.shipment_date).label('month'),
             func.count(Shipment.id).label('count')
         ).where(
             and_(
-                Shipment.shipment_date >= start_ts,
-                Shipment.shipment_date <= end_ts
+                Shipment.shipment_date >= start_datetime,
+                Shipment.shipment_date <= end_datetime
             )
         ).group_by(
-            extract('year', ship_date_as_ts),
-            extract('month', ship_date_as_ts)
+            extract('year', Shipment.shipment_date),
+            extract('month', Shipment.shipment_date)
         ).order_by('year', 'month')
         
         ship_results = self.db.execute(ship_query).all()
@@ -249,15 +243,12 @@ class StatisticsService:
         query = select(func.count(model.id))
         return self.db.execute(query).scalar() or 0
     
-    def _date_to_timestamp(self, d: date) -> int:
-        """Convert a date to Unix timestamp in milliseconds."""
-        return int(datetime.combine(d, datetime.min.time()).timestamp() * 1000)
-    
     def _count_documents_since(self, since_date: date) -> int:
         """Count documents created since a date."""
-        timestamp = self._date_to_timestamp(since_date)
+        # Convert date to datetime for comparison
+        since_datetime = datetime.combine(since_date, datetime.min.time())
         query = select(func.count(Document.id)).where(
-            Document.document_date >= timestamp
+            Document.document_date >= since_datetime
         )
         return self.db.execute(query).scalar() or 0
     
@@ -285,16 +276,16 @@ class StatisticsService:
     def _get_daily_trends(self, days: int) -> List[DailyTrend]:
         """Get daily document creation trends."""
         start_date = date.today() - timedelta(days=days)
-        start_ts = self._date_to_timestamp(start_date)
+        start_datetime = datetime.combine(start_date, datetime.min.time())
         
-        # Convert bigint timestamp (in milliseconds) to date for grouping
-        doc_date_as_date = cast(func.to_timestamp(Document.document_date / 1000), Date)
+        # Cast document_date to Date for grouping
+        doc_date_as_date = cast(Document.document_date, Date)
         
         query = select(
             doc_date_as_date.label('day'),
             func.count(Document.id).label('count')
         ).where(
-            Document.document_date >= start_ts
+            Document.document_date >= start_datetime
         ).group_by(
             doc_date_as_date
         ).order_by('day')
@@ -415,13 +406,12 @@ class StatisticsService:
     
     def _count_documents_in_range(self, start: date, end: date) -> int:
         """Count documents in a date range."""
-        start_ts = self._date_to_timestamp(start)
-        # End of day for end date
-        end_ts = self._date_to_timestamp(end + timedelta(days=1)) - 1
+        start_datetime = datetime.combine(start, datetime.min.time())
+        end_datetime = datetime.combine(end, datetime.max.time())
         query = select(func.count(Document.id)).where(
             and_(
-                Document.document_date >= start_ts,
-                Document.document_date <= end_ts
+                Document.document_date >= start_datetime,
+                Document.document_date <= end_datetime
             )
         )
         return self.db.execute(query).scalar() or 0

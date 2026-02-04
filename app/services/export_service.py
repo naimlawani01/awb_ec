@@ -337,17 +337,12 @@ class ExportService:
     
     @staticmethod
     def _format_date(dt) -> str:
-        """Format datetime or timestamp for export."""
+        """Format datetime for export."""
         if not dt:
             return "-"
-        # Handle bigint timestamp (Unix timestamp in milliseconds)
-        if isinstance(dt, (int, float)):
-            try:
-                # Convert milliseconds to seconds
-                dt = datetime.fromtimestamp(dt / 1000)
-            except (ValueError, OSError):
-                return "-"
-        return dt.strftime('%Y-%m-%d')
+        if isinstance(dt, datetime):
+            return dt.strftime('%Y-%m-%d')
+        return str(dt)
     
     @staticmethod
     def _get_status_name(status: int) -> str:
