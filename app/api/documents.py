@@ -38,12 +38,17 @@ async def list_documents(
     end_date: Optional[datetime] = None,
     status: Optional[int] = None,
     station_id: Optional[int] = None,
+    order_by: Optional[str] = Query("date_created", description="Column to sort by"),
+    order_dir: Optional[str] = Query("desc", pattern="^(asc|desc)$", description="Sort direction"),
     current_user: dict = Depends(require_viewer),
     awb_db: Session = Depends(get_awb_db),
     internal_db: Session = Depends(get_internal_db),
 ):
     """
-    List documents with optional filters and pagination.
+    List documents with optional filters, pagination and sorting.
+    
+    Sortable columns: document_number, reference_number, shipper, consignee, 
+    origin, destination, document_date, date_created, status
     """
     search_params = DocumentSearchParams(
         awb_number=awb_number,
@@ -58,7 +63,11 @@ async def list_documents(
     )
     
     service = DocumentService(awb_db)
-    documents, total = service.get_documents(page, page_size, search_params)
+    documents, total = service.get_documents(
+        page, page_size, search_params, 
+        order_by=order_by, 
+        order_dir=order_dir
+    )
     
     # Log search action
     user_service = UserService(internal_db)
@@ -77,6 +86,7 @@ async def list_documents(
         DocumentListItem(
             id=doc.id,
             document_number=doc.document_number,
+            reference_number=doc.reference_number,
             document_type=doc.document_type,
             status=doc.status,
             shipper=doc.shipper,
@@ -118,6 +128,7 @@ async def search_documents(
             DocumentListItem(
                 id=doc.id,
                 document_number=doc.document_number,
+                reference_number=doc.reference_number,
                 document_type=doc.document_type,
                 status=doc.status,
                 shipper=doc.shipper,
@@ -152,6 +163,7 @@ async def get_recent_documents(
             DocumentListItem(
                 id=doc.id,
                 document_number=doc.document_number,
+                reference_number=doc.reference_number,
                 document_type=doc.document_type,
                 status=doc.status,
                 shipper=doc.shipper,
@@ -209,6 +221,7 @@ async def get_documents_by_client(
             DocumentListItem(
                 id=doc.id,
                 document_number=doc.document_number,
+                reference_number=doc.reference_number,
                 document_type=doc.document_type,
                 status=doc.status,
                 shipper=doc.shipper,

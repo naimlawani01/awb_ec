@@ -39,6 +39,7 @@ class DocumentListItem(BaseModel):
     """Simplified document for list views."""
     id: int
     document_number: Optional[str] = None
+    reference_number: Optional[str] = None
     document_type: Optional[int] = None
     status: int
     shipper: Optional[str] = None

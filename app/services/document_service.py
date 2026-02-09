@@ -37,13 +37,28 @@ class DocumentService:
     def __init__(self, db: Session):
         self.db = db
     
+    # Allowed columns for sorting
+    SORTABLE_COLUMNS = {
+        'document_number': Document.document_number,
+        'reference_number': Document.reference_number,
+        'shipper': Document.shipper,
+        'consignee': Document.consignee,
+        'origin': Document.origin,
+        'destination': Document.destination,
+        'document_date': Document.document_date,
+        'date_created': Document.date_created,
+        'status': Document.status,
+    }
+    
     def get_documents(
         self,
         page: int = 1,
         page_size: int = 25,
-        search_params: Optional[DocumentSearchParams] = None
+        search_params: Optional[DocumentSearchParams] = None,
+        order_by: str = "date_created",
+        order_dir: str = "desc"
     ) -> Tuple[List[Document], int]:
-        """Get paginated list of documents with optional filters."""
+        """Get paginated list of documents with optional filters and sorting."""
         query = select(Document)
         
         # Apply filters
@@ -89,8 +104,14 @@ class DocumentService:
         count_query = select(func.count()).select_from(query.subquery())
         total = self.db.execute(count_query).scalar() or 0
         
-        # Apply pagination and ordering
-        query = query.order_by(Document.date_created.desc())
+        # Apply sorting
+        sort_column = self.SORTABLE_COLUMNS.get(order_by, Document.date_created)
+        if order_dir.lower() == "asc":
+            query = query.order_by(sort_column.asc().nulls_last())
+        else:
+            query = query.order_by(sort_column.desc().nulls_last())
+        
+        # Apply pagination
         query = query.offset((page - 1) * page_size).limit(page_size)
         
         documents = self.db.execute(query).scalars().all()
