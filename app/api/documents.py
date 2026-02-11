@@ -8,6 +8,7 @@ from app.core.database import get_awb_db, get_internal_db
 from app.core.security import require_viewer, oauth2_scheme, decode_token
 from app.services.document_service import DocumentService
 from app.services.user_service import UserService
+from app.services.awb_parser import AWBParser
 from app.schemas.document import (
     DocumentResponse, DocumentListResponse, DocumentSearchParams,
     DocumentListItem
@@ -268,6 +269,43 @@ async def get_document(
     )
     
     return DocumentResponse.model_validate(document)
+
+
+@router.get("/{document_id}/details")
+async def get_document_details(
+    document_id: int,
+    current_user: dict = Depends(require_viewer),
+    db: Session = Depends(get_awb_db),
+):
+    """
+    Get detailed AWB information parsed from document_data XML.
+    
+    Returns rate description (pieces, weights, charges), routing,
+    other charges, and all AWB fields.
+    """
+    service = DocumentService(db)
+    document = service.get_document_by_id(document_id)
+    
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document with ID {document_id} not found"
+        )
+    
+    # Parse the XML document_data
+    awb_details = AWBParser.parse(document.document_data)
+    
+    if not awb_details:
+        raise HTTPException(
+            status_code=404,
+            detail="Document data could not be parsed or is empty"
+        )
+    
+    return {
+        "document_id": document_id,
+        "document_number": document.document_number,
+        "awb_details": AWBParser.to_dict(awb_details),
+    }
 
 
 @router.get("/{document_id}/logs")
