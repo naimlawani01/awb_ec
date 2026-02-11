@@ -3,6 +3,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Optional
 from calendar import month_name
+from collections import Counter
 from sqlalchemy import select, func, and_, extract, cast, Date
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,7 @@ from app.schemas.statistics import (
     RouteStats, RoutesResponse, AirlineStats, AirlinesResponse
 )
 from app.services.document_service import DocumentService
+from app.services.awb_parser import AWBParser
 
 
 class StatisticsService:
@@ -57,6 +59,9 @@ class StatisticsService:
         mom_growth = self._calculate_mom_growth()
         yoy_growth = self._calculate_yoy_growth()
         
+        # AWB aggregated data (pieces, weight, charges)
+        awb_totals = self._get_awb_totals()
+        
         return StatisticsResponse(
             total_documents=total_documents,
             total_shipments=total_shipments,
@@ -72,7 +77,44 @@ class StatisticsService:
             top_origins=top_origins,
             mom_growth=mom_growth,
             yoy_growth=yoy_growth,
+            total_pieces=awb_totals.get("total_pieces", 0),
+            total_weight=awb_totals.get("total_weight", 0.0),
+            total_prepaid=awb_totals.get("total_prepaid", 0.0),
+            main_currency=awb_totals.get("main_currency", "USD"),
         )
+    
+    def _get_awb_totals(self) -> Dict:
+        """Calculate aggregated totals from parsed AWB data."""
+        total_pieces = 0
+        total_weight = 0.0
+        total_prepaid = 0.0
+        currencies = Counter()
+        
+        # Get all documents with document_data
+        query = select(Document.document_data).where(Document.document_data.isnot(None))
+        results = self.db.execute(query).scalars().all()
+        
+        for doc_data in results:
+            try:
+                awb_details = AWBParser.parse(doc_data)
+                if awb_details:
+                    total_pieces += awb_details.total_pieces
+                    total_weight += awb_details.total_weight
+                    total_prepaid += awb_details.charges_summary.total_prepaid
+                    if awb_details.currency:
+                        currencies[awb_details.currency] += 1
+            except Exception:
+                continue
+        
+        # Get the most common currency
+        main_currency = currencies.most_common(1)[0][0] if currencies else "USD"
+        
+        return {
+            "total_pieces": total_pieces,
+            "total_weight": round(total_weight, 2),
+            "total_prepaid": round(total_prepaid, 2),
+            "main_currency": main_currency,
+        }
     
     def get_monthly_volume(
         self,

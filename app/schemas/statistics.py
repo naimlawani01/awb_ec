@@ -95,6 +95,12 @@ class StatisticsResponse(BaseModel):
     # Growth metrics
     mom_growth: Optional[float] = None  # Month over month
     yoy_growth: Optional[float] = None  # Year over year
+    
+    # AWB aggregated data
+    total_pieces: Optional[int] = 0
+    total_weight: Optional[float] = 0.0
+    total_prepaid: Optional[float] = 0.0
+    main_currency: Optional[str] = "USD"
 
 
 class RevenueStats(BaseModel):
