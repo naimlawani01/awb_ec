@@ -434,13 +434,28 @@ class ExportService:
                 total_other_charges += other_charges_sum
                 total_prepaid += prepaid_total
             
+            # Get clean origin/destination codes
+            origin_code = doc.origin or ""
+            dest_code = doc.destination or ""
+            if awb_details:
+                # Prefer the airport code from parsed data
+                if awb_details.airport_departure_code:
+                    origin_code = awb_details.airport_departure_code[:3].upper()
+                elif origin_code and len(origin_code) >= 3:
+                    origin_code = origin_code[:3].upper()
+                # Get destination from route if available
+                if awb_details.route.to:
+                    dest_code = awb_details.route.to[-1][:3].upper() if awb_details.route.to[-1] else dest_code
+                elif dest_code and len(dest_code) >= 3:
+                    dest_code = dest_code[:3].upper()
+            
             ws_summary.cell(row=row_num, column=1, value=doc.document_number)
             ws_summary.cell(row=row_num, column=2, value=doc.reference_number)
             ws_summary.cell(row=row_num, column=3, value=self._format_date(doc.document_date))
             ws_summary.cell(row=row_num, column=4, value=doc.shipper)
             ws_summary.cell(row=row_num, column=5, value=doc.consignee)
-            ws_summary.cell(row=row_num, column=6, value=doc.origin)
-            ws_summary.cell(row=row_num, column=7, value=doc.destination)
+            ws_summary.cell(row=row_num, column=6, value=origin_code)
+            ws_summary.cell(row=row_num, column=7, value=dest_code)
             ws_summary.cell(row=row_num, column=8, value=pieces)
             ws_summary.cell(row=row_num, column=9, value=gross_weight)
             ws_summary.cell(row=row_num, column=10, value=chargeable_weight)
@@ -560,6 +575,8 @@ class ExportService:
             carriers = ""
             flights = ""
             handling = ""
+            origin_code = doc.origin or ""
+            dest_code = doc.destination or ""
             
             if awb_details:
                 if awb_details.route.to:
@@ -569,11 +586,21 @@ class ExportService:
                 if awb_details.route.flights:
                     flights = ", ".join(filter(None, awb_details.route.flights))
                 handling = awb_details.handling_information
+                
+                # Clean origin/destination codes
+                if awb_details.airport_departure_code:
+                    origin_code = awb_details.airport_departure_code[:3].upper()
+                elif origin_code and len(origin_code) >= 3:
+                    origin_code = origin_code[:3].upper()
+                if awb_details.route.to:
+                    dest_code = awb_details.route.to[-1][:3].upper() if awb_details.route.to[-1] else dest_code
+                elif dest_code and len(dest_code) >= 3:
+                    dest_code = dest_code[:3].upper()
             
             ws_routing.cell(row=routing_row, column=1, value=doc.document_number)
             ws_routing.cell(row=routing_row, column=2, value=self._format_date(doc.document_date))
-            ws_routing.cell(row=routing_row, column=3, value=doc.origin)
-            ws_routing.cell(row=routing_row, column=4, value=doc.destination)
+            ws_routing.cell(row=routing_row, column=3, value=origin_code)
+            ws_routing.cell(row=routing_row, column=4, value=dest_code)
             ws_routing.cell(row=routing_row, column=5, value=via)
             ws_routing.cell(row=routing_row, column=6, value=carriers)
             ws_routing.cell(row=routing_row, column=7, value=flights)
@@ -724,7 +751,10 @@ class ExportService:
         # Documents table
         elements.append(Paragraph("Détail des documents", section_style))
         
-        headers = ["N° AWB", "Expéditeur", "Destinataire", "Route", "Pièces", "Poids", "Total"]
+        # Determine main currency for header
+        main_currency = list(currencies)[0] if currencies else "USD"
+        
+        headers = ["N° AWB", "Expéditeur", "Destinataire", "Route", "Pièces", "Poids (kg)", f"Total ({main_currency})"]
         data = [headers]
         
         for doc_item in documents[:50]:  # Limit to 50 for PDF
@@ -733,13 +763,31 @@ class ExportService:
             pieces = "-"
             weight = "-"
             total = "-"
+            route = "-"
             
             if awb_details:
                 pieces = str(awb_details.total_pieces)
-                weight = f"{awb_details.total_weight} kg"
+                weight = f"{awb_details.total_weight:.1f}"
                 total = f"{awb_details.charges_summary.total_prepaid:.2f}"
-            
-            route = f"{doc_item.origin or '?'} → {doc_item.destination or '?'}"
+                
+                # Build route from AWB details (airport codes only)
+                origin_code = awb_details.airport_departure_code or doc_item.origin or "?"
+                # Get destination from route.to if available, otherwise use doc_item.destination
+                dest_code = doc_item.destination or "?"
+                if awb_details.route.to:
+                    # Take the last destination in the route
+                    dest_code = awb_details.route.to[-1] if awb_details.route.to else dest_code
+                # Clean up: only use first 3 chars if it looks like an airport code
+                if len(origin_code) >= 3:
+                    origin_code = origin_code[:3].upper()
+                if len(dest_code) >= 3:
+                    dest_code = dest_code[:3].upper()
+                route = f"{origin_code} → {dest_code}"
+            else:
+                # Fallback to doc_item fields, but clean them up
+                origin = (doc_item.origin or "?")[:3].upper() if doc_item.origin else "?"
+                dest = (doc_item.destination or "?")[:3].upper() if doc_item.destination else "?"
+                route = f"{origin} → {dest}"
             
             data.append([
                 doc_item.document_number or "-",
