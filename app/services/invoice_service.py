@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
-from docx.shared import Pt, Cm
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from app.utils.number_to_words import number_to_french_words
@@ -28,20 +28,11 @@ def generate_invoice_word(
     """
     doc = DocxDocument()
     
-    # Marges réduites pour tenir sur une page (Word et PDF identiques)
-    section = doc.sections[0]
-    section.top_margin = Cm(0.8)
-    section.bottom_margin = Cm(0.8)
-    section.left_margin = Cm(1.2)
-    section.right_margin = Cm(1.2)
-    
-    # Set default font et espacement compact
+    # Set default font
     style = doc.styles['Normal']
     font = style.font
     font.name = 'Times New Roman'
     font.size = Pt(12)
-    style.paragraph_format.space_before = Pt(0)
-    style.paragraph_format.space_after = Pt(3)
     
     def add_para(text: str, size_pt: int = 12, bold: bool = False, align: str = None):
         p = doc.add_paragraph()
@@ -78,7 +69,7 @@ def generate_invoice_word(
     run_inv.font.size = Pt(14)
     run_inv.bold = True
     run_inv.underline = True
-    p_inv.paragraph_format.space_after = Pt(6)
+    doc.add_paragraph()
     
     # Client (right aligned, bold, same line: Client : [name])
     client_name = document.consignee or document.shipper or 'Client'
@@ -92,7 +83,7 @@ def generate_invoice_word(
         run2 = client_para.add_run(f'\n{awb_details["consignee_details"]}')
         run2.font.name = 'Times New Roman'
         run2.font.size = Pt(12)
-    client_para.paragraph_format.space_after = Pt(6)
+    doc.add_paragraph()
     
     # Route
     awb_details = awb_details or {}
@@ -138,7 +129,8 @@ def generate_invoice_word(
     run_lta.font.name = 'Times New Roman'
     run_lta.font.size = Pt(12)
     run_lta.italic = True
-    lta_para.paragraph_format.space_after = Pt(12)
+    doc.add_paragraph()
+    doc.add_paragraph()
     
     montant_para = doc.add_paragraph()
     montant_para.paragraph_format.space_before = Pt(0)
@@ -151,7 +143,7 @@ def generate_invoice_word(
     run_m2 = montant_para.add_run(f" : {amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
     run_m2.font.name = 'Times New Roman'
     run_m2.font.size = Pt(12)
-    montant_para.paragraph_format.space_after = Pt(6)
+    doc.add_paragraph()
     
     # Table
     currency = (awb_details or {}).get('currency') or 'USD'
@@ -194,13 +186,15 @@ def generate_invoice_word(
                 r.font.name = 'Times New Roman'
                 r.font.size = Pt(12)
     
+    doc.add_paragraph()
+    
     # Montant total à Payer (bold, 14pt)
     p_payer = doc.add_paragraph()
     run_payer = p_payer.add_run(f"Montant total à Payer : ………………………. {total_gnf:,} GNF")
     run_payer.font.name = 'Times New Roman'
     run_payer.font.size = Pt(14)
     run_payer.bold = True
-    p_payer.paragraph_format.space_after = Pt(6)
+    doc.add_paragraph()
     
     # Amount in words (phrase size 14, amount part in italic + bold)
     amount_words = number_to_french_words(total_gnf) + ' francs guinéens.'
@@ -213,7 +207,7 @@ def generate_invoice_word(
     run2.font.size = Pt(14)
     run2.italic = True
     run2.bold = True
-    p.paragraph_format.space_after = Pt(6)
+    doc.add_paragraph()
     
     # Signature (bold, 14pt)
     sig = doc.add_paragraph()
