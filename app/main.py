@@ -2,6 +2,7 @@
 AWB Management Platform - FastAPI Application
 Main entry point for the backend API.
 """
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,31 +14,29 @@ from app.core.database import init_internal_db, get_internal_db
 from app.api import api_router
 from app.services.user_service import UserService
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
-    print(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     
-    # Initialize internal database
     init_internal_db()
-    print("Internal database initialized")
+    logger.info("Internal database initialized")
     
-    # Create default admin user if needed
     db = next(get_internal_db())
     try:
         user_service = UserService(db)
         admin = user_service.create_default_admin()
         if admin:
-            print(f"Default admin user created: {admin.username}")
+            logger.info(f"Default admin user created: {admin.username}")
     finally:
         db.close()
     
     yield
     
-    # Shutdown
-    print("Shutting down application")
+    logger.info("Shutting down application")
 
 
 # Create FastAPI application

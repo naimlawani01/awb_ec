@@ -53,7 +53,7 @@ class Contact(AWBBase):
     contact_type = Column(SmallInteger, nullable=False)
     display_name = Column(String(100))
     account_number = Column(String(30))
-    contact_data = Column(LargeBinary)
+    contact_data = Column(Text)
 
 
 class Document(AWBBase):

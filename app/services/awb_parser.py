@@ -1,7 +1,10 @@
 """AWB XML Parser - Extracts detailed information from document_data field."""
+import logging
 import xml.etree.ElementTree as ET
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -218,7 +221,7 @@ class AWBParser:
             return details
             
         except Exception as e:
-            print(f"Error parsing AWB XML: {e}")
+            logger.error(f"Error parsing AWB XML: {e}")
             return None
     
     @staticmethod
