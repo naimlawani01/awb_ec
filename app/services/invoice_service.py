@@ -48,23 +48,33 @@ def generate_invoice_word(
     for en, fr in months_fr.items():
         doc_date = doc_date.replace(en, fr)
     
-    add_para(f'Conakry, le {doc_date}', 14)
+    date_para = doc.add_paragraph()
+    date_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run_date = date_para.add_run(f'Conakry, le {doc_date}')
+    run_date.font.name = 'Times New Roman'
+    run_date.font.size = Pt(14)
     
-    invoice_number = document.reference_number or f"{document.document_number or document.id}/EC/{datetime.now().strftime('%d/%m/%y')}"
-    add_para(f"Facture N° {invoice_number}", 14, bold=True)
+    invoice_number = document.reference_number or '-'
+    p_inv = doc.add_paragraph()
+    run_inv = p_inv.add_run(f"Facture N° {invoice_number}")
+    run_inv.font.name = 'Times New Roman'
+    run_inv.font.size = Pt(14)
+    run_inv.bold = True
+    run_inv.underline = True
     doc.add_paragraph()
     
-    # Client (right aligned, no border)
+    # Client (right aligned, bold, same line: Client : [name])
     client_name = document.consignee or document.shipper or 'Client'
     client_para = doc.add_paragraph()
     client_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run = client_para.add_run(f'Client :\n{client_name}')
+    run = client_para.add_run(f'Client : {client_name}')
     run.font.name = 'Times New Roman'
     run.font.size = Pt(12)
-    if awb_details and awb_details.get('consignee_details'):
-        run = client_para.add_run(f'\n{awb_details["consignee_details"]}')
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
+    run.bold = True
+    if (awb_details or {}).get('consignee_details'):
+        run2 = client_para.add_run(f'\n{awb_details["consignee_details"]}')
+        run2.font.name = 'Times New Roman'
+        run2.font.size = Pt(12)
     doc.add_paragraph()
     
     # Route
@@ -92,10 +102,18 @@ def generate_invoice_word(
     weight_part = f'{total_weight} {weight_label}' if total_weight else ''
     libelle = f"Transport de {pieces_part} {weight_part} de {nature_desc} {route}".strip()
     
-    add_para("Nature de l'opération :", 12, bold=True)
-    add_para(libelle)
-    add_para(f"LTA : {document.document_number or '-'}")
-    doc.add_paragraph()
+    nature_para = doc.add_paragraph()
+    nature_para.paragraph_format.space_after = Pt(2)
+    run_nat = nature_para.add_run(f"Nature de l'opération : {libelle}")
+    run_nat.font.name = 'Times New Roman'
+    run_nat.font.size = Pt(12)
+    run_nat.bold = True
+    lta_para = doc.add_paragraph()
+    lta_para.paragraph_format.space_before = Pt(2)
+    lta_para.paragraph_format.space_after = Pt(2)
+    run_lta = lta_para.add_run(f"LTA : {document.document_number or '-'}")
+    run_lta.font.name = 'Times New Roman'
+    run_lta.font.size = Pt(12)
     
     add_para("Montant Total de l'opération :", 12, bold=True)
     add_para(f"{amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
@@ -144,25 +162,34 @@ def generate_invoice_word(
     
     doc.add_paragraph()
     
-    # Montant total à Payer (no border)
-    add_para(f"Montant total à Payer : ………………………. {total_gnf:,} GNF")
+    # Montant total à Payer (bold, 14pt)
+    p_payer = doc.add_paragraph()
+    run_payer = p_payer.add_run(f"Montant total à Payer : ………………………. {total_gnf:,} GNF")
+    run_payer.font.name = 'Times New Roman'
+    run_payer.font.size = Pt(14)
+    run_payer.bold = True
     doc.add_paragraph()
     
-    # Amount in words
+    # Amount in words (amount part in italic + bold)
     amount_words = number_to_french_words(total_gnf) + ' francs guinéens.'
     p = doc.add_paragraph()
-    run = p.add_run(f"Arrêtée la présente facture à la somme de : {amount_words}")
-    run.font.name = 'Times New Roman'
-    run.font.size = Pt(12)
-    run.italic = True
+    run1 = p.add_run("Arrêtée la présente facture à la somme de : ")
+    run1.font.name = 'Times New Roman'
+    run1.font.size = Pt(12)
+    run2 = p.add_run(amount_words)
+    run2.font.name = 'Times New Roman'
+    run2.font.size = Pt(12)
+    run2.italic = True
+    run2.bold = True
     doc.add_paragraph()
     
-    # Signature
+    # Signature (bold, 14pt)
     sig = doc.add_paragraph()
     sig.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     run = sig.add_run('Le Service Administratif & Financier')
     run.font.name = 'Times New Roman'
-    run.font.size = Pt(12)
+    run.font.size = Pt(14)
+    run.bold = True
     
     buffer = BytesIO()
     doc.save(buffer)
