@@ -1,7 +1,7 @@
 """Document (AWB) API endpoints."""
 from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_awb_db, get_internal_db
@@ -9,6 +9,7 @@ from app.core.security import require_viewer, oauth2_scheme, decode_token
 from app.services.document_service import DocumentService
 from app.services.user_service import UserService
 from app.services.awb_parser import AWBParser
+from app.services.invoice_service import generate_invoice_word
 from app.schemas.document import (
     DocumentResponse, DocumentListResponse, DocumentSearchParams,
     DocumentListItem
@@ -306,6 +307,42 @@ async def get_document_details(
         "document_number": document.document_number,
         "awb_details": AWBParser.to_dict(awb_details),
     }
+
+
+@router.post("/{document_id}/invoice/word")
+async def download_invoice_word(
+    document_id: int,
+    request: Request,
+    current_user: dict = Depends(require_viewer),
+    awb_db: Session = Depends(get_awb_db),
+):
+    """
+    Generate and download invoice as Word document (Delphinus format).
+    Request body: { "amount_usd": float, "usd_to_gnf": int (default 8960) }
+    """
+    try:
+        body = await request.json()
+        amount_usd = float(body.get("amount_usd", 0))
+        usd_to_gnf = int(body.get("usd_to_gnf", 8960))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid amount_usd or usd_to_gnf")
+
+    service = DocumentService(awb_db)
+    document = service.get_document_by_id(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    awb_details = AWBParser.parse(document.document_data)
+    awb_dict = AWBParser.to_dict(awb_details) if awb_details else {}
+
+    docx_bytes = generate_invoice_word(document, awb_dict, amount_usd, usd_to_gnf)
+
+    filename = f"facture_{document.document_number or document_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{document_id}/logs")
