@@ -1,9 +1,13 @@
 """Invoice generation service - Word document (Delphinus format)."""
+import logging
+import subprocess
 import tempfile
 import os
 from datetime import datetime
 from io import BytesIO
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
 from docx.shared import Pt
@@ -109,27 +113,34 @@ def generate_invoice_word(
     nature_para = doc.add_paragraph()
     nature_para.paragraph_format.space_before = Pt(0)
     nature_para.paragraph_format.space_after = Pt(0)
-    run_nat = nature_para.add_run(f"Nature de l'opération : {libelle}")
-    run_nat.font.name = 'Times New Roman'
-    run_nat.font.size = Pt(12)
-    run_nat.bold = True
-    run_nat.underline = True
+    run_nat1 = nature_para.add_run("Nature de l'opération")
+    run_nat1.font.name = 'Times New Roman'
+    run_nat1.font.size = Pt(12)
+    run_nat1.bold = True
+    run_nat1.underline = True
+    run_nat2 = nature_para.add_run(f" : {libelle}")
+    run_nat2.font.name = 'Times New Roman'
+    run_nat2.font.size = Pt(12)
+    run_nat2.bold = True
     lta_para = doc.add_paragraph()
     lta_para.paragraph_format.space_before = Pt(0)
     lta_para.paragraph_format.space_after = Pt(0)
     run_lta = lta_para.add_run(f"LTA : {document.document_number or '-'}")
     run_lta.font.name = 'Times New Roman'
     run_lta.font.size = Pt(12)
+    run_lta.italic = True
+    doc.add_paragraph()
+    doc.add_paragraph()
     
     montant_para = doc.add_paragraph()
     montant_para.paragraph_format.space_before = Pt(0)
     montant_para.paragraph_format.space_after = Pt(0)
-    run_m1 = montant_para.add_run("Montant Total de l'opération : ")
+    run_m1 = montant_para.add_run("Montant Total de l'opération")
     run_m1.font.name = 'Times New Roman'
     run_m1.font.size = Pt(12)
     run_m1.bold = True
     run_m1.underline = True
-    run_m2 = montant_para.add_run(f"{amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
+    run_m2 = montant_para.add_run(f" : {amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
     run_m2.font.name = 'Times New Roman'
     run_m2.font.size = Pt(12)
     doc.add_paragraph()
@@ -185,15 +196,15 @@ def generate_invoice_word(
     run_payer.bold = True
     doc.add_paragraph()
     
-    # Amount in words (amount part in italic + bold)
+    # Amount in words (phrase size 14, amount part in italic + bold)
     amount_words = number_to_french_words(total_gnf) + ' francs guinéens.'
     p = doc.add_paragraph()
     run1 = p.add_run("Arrêtée la présente facture à la somme de : ")
     run1.font.name = 'Times New Roman'
-    run1.font.size = Pt(12)
+    run1.font.size = Pt(14)
     run2 = p.add_run(amount_words)
     run2.font.name = 'Times New Roman'
-    run2.font.size = Pt(12)
+    run2.font.size = Pt(14)
     run2.italic = True
     run2.bold = True
     doc.add_paragraph()
@@ -210,6 +221,30 @@ def generate_invoice_word(
     doc.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def _convert_docx_to_pdf_libreoffice(docx_path: str, output_dir: str) -> str:
+    """Convert docx to PDF using LibreOffice (soffice). Returns path to PDF."""
+    for cmd in ["libreoffice", "soffice"]:
+        try:
+            result = subprocess.run(
+                [cmd, "--headless", "--convert-to", "pdf", "--outdir", output_dir, docx_path],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode == 0:
+                pdf_path = os.path.join(output_dir, "facture.pdf")
+                if os.path.exists(pdf_path):
+                    return pdf_path
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Conversion timeout. LibreOffice ({cmd}) took too long.")
+    raise RuntimeError(
+        "LibreOffice non trouvé. Installez-le : apt-get install libreoffice (Linux) "
+        "ou brew install libreoffice (Mac)"
+    )
 
 
 def generate_invoice_pdf(
@@ -232,14 +267,24 @@ def generate_invoice_pdf(
         with open(docx_path, "wb") as f:
             f.write(docx_bytes)
 
+        converted = False
+        # Try docx2pdf first (uses Word on Windows, LibreOffice on Mac)
         try:
             from docx2pdf import convert
             convert(docx_path, pdf_path)
+            converted = True
         except Exception as e:
-            raise RuntimeError(
-                f"PDF conversion failed. Install LibreOffice (apt-get install libreoffice) "
-                f"or Microsoft Word (Windows). Error: {e}"
-            )
+            logger.warning("docx2pdf failed: %s, trying LibreOffice directly", e)
+
+        # Fallback: LibreOffice directly (Linux, Mac)
+        if not converted or not os.path.exists(pdf_path):
+            try:
+                pdf_path = _convert_docx_to_pdf_libreoffice(docx_path, tmpdir)
+            except RuntimeError as e:
+                raise RuntimeError(str(e))
+
+        if not os.path.exists(pdf_path):
+            pdf_path = os.path.join(tmpdir, "facture.pdf")
 
         with open(pdf_path, "rb") as f:
             return f.read()

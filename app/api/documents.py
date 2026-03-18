@@ -332,7 +332,10 @@ async def download_invoice_word(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    awb_details = AWBParser.parse(document.document_data)
+    doc_data = document.document_data
+    if doc_data and isinstance(doc_data, str):
+        doc_data = doc_data.encode("utf-8")
+    awb_details = AWBParser.parse(doc_data) if doc_data else None
     awb_dict = AWBParser.to_dict(awb_details) if awb_details else {}
 
     docx_bytes = generate_invoice_word(document, awb_dict, amount_usd, usd_to_gnf)
@@ -368,12 +371,18 @@ async def download_invoice_pdf(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    awb_details = AWBParser.parse(document.document_data)
+    doc_data = document.document_data
+    if doc_data and isinstance(doc_data, str):
+        doc_data = doc_data.encode("utf-8")
+    awb_details = AWBParser.parse(doc_data) if doc_data else None
     awb_dict = AWBParser.to_dict(awb_details) if awb_details else {}
 
     try:
         pdf_bytes = generate_invoice_pdf(document, awb_dict, amount_usd, usd_to_gnf)
-    except RuntimeError as e:
+    except Exception as e:
+        import logging
+        log = logging.getLogger(__name__)
+        log.exception("Invoice PDF generation failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
     filename = f"facture_{document.document_number or document_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
