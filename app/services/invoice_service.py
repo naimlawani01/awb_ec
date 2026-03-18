@@ -1,4 +1,6 @@
 """Invoice generation service - Word document (Delphinus format)."""
+import tempfile
+import os
 from datetime import datetime
 from io import BytesIO
 from typing import Optional, Dict, Any
@@ -54,7 +56,9 @@ def generate_invoice_word(
     run_date.font.name = 'Times New Roman'
     run_date.font.size = Pt(14)
     
-    invoice_number = document.reference_number or '-'
+    ref = document.reference_number or ''
+    date_part = datetime.now().strftime('%d/%m/%y')
+    invoice_number = f"{ref}/EC/JA/{date_part}" if ref else '-'
     p_inv = doc.add_paragraph()
     run_inv = p_inv.add_run(f"Facture N° {invoice_number}")
     run_inv.font.name = 'Times New Roman'
@@ -103,20 +107,31 @@ def generate_invoice_word(
     libelle = f"Transport de {pieces_part} {weight_part} de {nature_desc} {route}".strip()
     
     nature_para = doc.add_paragraph()
-    nature_para.paragraph_format.space_after = Pt(2)
+    nature_para.paragraph_format.space_before = Pt(0)
+    nature_para.paragraph_format.space_after = Pt(0)
     run_nat = nature_para.add_run(f"Nature de l'opération : {libelle}")
     run_nat.font.name = 'Times New Roman'
     run_nat.font.size = Pt(12)
     run_nat.bold = True
+    run_nat.underline = True
     lta_para = doc.add_paragraph()
-    lta_para.paragraph_format.space_before = Pt(2)
-    lta_para.paragraph_format.space_after = Pt(2)
+    lta_para.paragraph_format.space_before = Pt(0)
+    lta_para.paragraph_format.space_after = Pt(0)
     run_lta = lta_para.add_run(f"LTA : {document.document_number or '-'}")
     run_lta.font.name = 'Times New Roman'
     run_lta.font.size = Pt(12)
     
-    add_para("Montant Total de l'opération :", 12, bold=True)
-    add_para(f"{amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
+    montant_para = doc.add_paragraph()
+    montant_para.paragraph_format.space_before = Pt(0)
+    montant_para.paragraph_format.space_after = Pt(0)
+    run_m1 = montant_para.add_run("Montant Total de l'opération : ")
+    run_m1.font.name = 'Times New Roman'
+    run_m1.font.size = Pt(12)
+    run_m1.bold = True
+    run_m1.underline = True
+    run_m2 = montant_para.add_run(f"{amount_usd:,.2f} USD (1 USD = {usd_to_gnf:,} GNF)")
+    run_m2.font.name = 'Times New Roman'
+    run_m2.font.size = Pt(12)
     doc.add_paragraph()
     
     # Table
@@ -195,3 +210,36 @@ def generate_invoice_word(
     doc.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def generate_invoice_pdf(
+    document,
+    awb_details: Optional[Dict[str, Any]],
+    amount_usd: float,
+    usd_to_gnf: int,
+) -> bytes:
+    """
+    Generate invoice as PDF (Word converted to PDF for identical format).
+    Returns pdf file as bytes.
+    Requires LibreOffice (Linux/Mac) or Microsoft Word (Windows).
+    """
+    docx_bytes = generate_invoice_word(document, awb_details, amount_usd, usd_to_gnf)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        docx_path = os.path.join(tmpdir, "facture.docx")
+        pdf_path = os.path.join(tmpdir, "facture.pdf")
+
+        with open(docx_path, "wb") as f:
+            f.write(docx_bytes)
+
+        try:
+            from docx2pdf import convert
+            convert(docx_path, pdf_path)
+        except Exception as e:
+            raise RuntimeError(
+                f"PDF conversion failed. Install LibreOffice (apt-get install libreoffice) "
+                f"or Microsoft Word (Windows). Error: {e}"
+            )
+
+        with open(pdf_path, "rb") as f:
+            return f.read()

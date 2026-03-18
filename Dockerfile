@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     # For healthchecks
     curl \
+    # For invoice PDF conversion (docx2pdf)
+    libreoffice \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
