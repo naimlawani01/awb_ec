@@ -564,14 +564,15 @@ class StatisticsService:
     
     def get_airlines_stats(self, limit: int = 10) -> AirlinesResponse:
         """Get airline statistics based on AWB prefixes."""
-        # Extract prefix from document_number (first 3 chars using LEFT function)
-        prefix_expr = func.left(Document.document_number, 3)
+        # Extract prefix from document_number (first 3 chars after trim; e.g. "235-1234…" → "235")
+        prefix_expr = func.left(func.trim(Document.document_number), 3)
         
         query = select(
             prefix_expr.label('prefix'),
             func.count(Document.id).label('count')
         ).where(
-            Document.document_number.isnot(None)
+            Document.document_number.isnot(None),
+            func.trim(Document.document_number) != '',
         ).group_by(
             prefix_expr
         ).order_by(
@@ -579,25 +580,43 @@ class StatisticsService:
         ).limit(limit)
         
         results = self.db.execute(query).all()
-        total = sum(count for _, count in results)
         
         airlines = []
         for prefix, count in results:
-            if prefix:
-                airline_name = self.AIRLINE_PREFIXES.get(
-                    prefix, 
-                    f"Airline ({prefix})"
-                )
-                airlines.append(AirlineStats(
-                    prefix=prefix,
-                    airline_name=airline_name,
-                    count=count,
-                    percentage=round((count / total * 100) if total > 0 else 0, 2)
-                ))
+            if not prefix:
+                continue
+            p = str(prefix).strip()
+            if len(p) >= 3 and p[0:3].isdigit():
+                p = p[0:3]
+            elif p.isdigit() and len(p) >= 1:
+                p = p.zfill(3) if len(p) < 3 else p[:3]
+            else:
+                continue
+            airline_name = self.AIRLINE_PREFIXES.get(
+                p,
+                f"Compagnie ({p})",
+            )
+            airlines.append(AirlineStats(
+                prefix=p,
+                airline_name=airline_name,
+                count=count,
+                percentage=0.0,
+            ))
+        
+        total_kept = sum(a.count for a in airlines)
+        airlines = [
+            AirlineStats(
+                prefix=a.prefix,
+                airline_name=a.airline_name,
+                count=a.count,
+                percentage=round((a.count / total_kept * 100) if total_kept > 0 else 0, 2),
+            )
+            for a in airlines
+        ]
         
         return AirlinesResponse(
             airlines=airlines,
-            total_awbs=total
+            total_awbs=total_kept
         )
     
     def _extract_airport_code(self, destination: str) -> str:

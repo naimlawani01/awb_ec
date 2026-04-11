@@ -73,6 +73,14 @@ class DocumentSearchParams(BaseModel):
     end_date: Optional[datetime] = Field(None, description="End date filter")
     status: Optional[int] = Field(None, description="Document status")
     station_id: Optional[int] = Field(None, description="Station ID")
+    airline: Optional[str] = Field(
+        None,
+        description="Airline: AWB prefix (3 digits) or name/designator; filters by issuing carrier",
+    )
+    commodity_nature: Optional[str] = Field(
+        None,
+        description="Nature of goods (partial match on AWB item nature / search text)",
+    )
 
 
 class DocumentTypeCount(BaseModel):

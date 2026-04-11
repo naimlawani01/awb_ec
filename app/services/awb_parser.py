@@ -1,5 +1,6 @@
 """AWB XML Parser - Extracts detailed information from document_data field."""
 import logging
+import re
 import xml.etree.ElementTree as ET
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, asdict
@@ -271,6 +272,43 @@ class AWBParser:
                 )
                 items.append(item)
         return items
+    
+    # Separators: same idea as regexp_split_to_array in document_service (PostgreSQL filter)
+    _NATURE_TOKEN_SPLIT_RE = re.compile(r"[\s,/;|.+]+")
+    
+    @classmethod
+    def tokenize_nature_description(cls, text: str) -> List[str]:
+        """
+        Split "Nature des marchandises" like in the UI: one entry per code / word
+        (e.g. val, pes, doc — separated by spaces, commas, slashes, etc.).
+        """
+        if not text or not str(text).strip():
+            return []
+        return [
+            t.lower()
+            for t in cls._NATURE_TOKEN_SPLIT_RE.split(str(text).strip())
+            if t and str(t).strip()
+        ]
+    
+    @classmethod
+    def nature_tokens_from_xml(cls, xml_data: bytes) -> List[str]:
+        """All normalized tokens from every <nature> under <awb-item> (same source as detail page)."""
+        details = cls.parse(xml_data)
+        if not details or not details.items:
+            return []
+        tokens: List[str] = []
+        for item in details.items:
+            tokens.extend(cls.tokenize_nature_description(item.nature))
+        return tokens
+    
+    @classmethod
+    def nature_filter_token_matches(cls, xml_data: bytes, filter_term: str) -> bool:
+        """True if filter (normalized) equals one of the nature tokens."""
+        needle = (filter_term or "").strip().lower()
+        if not needle or not xml_data:
+            return False
+        tok_set = set(cls.nature_tokens_from_xml(xml_data))
+        return needle in tok_set
     
     @staticmethod
     def _parse_other_charges(root: ET.Element) -> List[OtherCharge]:

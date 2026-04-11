@@ -162,7 +162,7 @@ async def get_routes_statistics(
 
 @router.get("/airlines", response_model=AirlinesResponse)
 async def get_airlines_statistics(
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=200),
     current_user: dict = Depends(require_viewer),
     db: Session = Depends(get_awb_db),
 ):
