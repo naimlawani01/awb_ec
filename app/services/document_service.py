@@ -1,5 +1,5 @@
 """Document service for AWB operations."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, and_, or_, text
 from sqlalchemy.orm import Session
@@ -222,7 +222,12 @@ class DocumentService:
                 filters.append(Document.document_date >= search_params.start_date)
             
             if search_params.end_date:
-                filters.append(Document.document_date <= search_params.end_date)
+                # Borne de fin inclusive : couvrir toute la journée sélectionnée
+                # (document_date peut porter une heure), donc < jour suivant à minuit.
+                end_exclusive = datetime.combine(
+                    search_params.end_date.date(), time.min
+                ) + timedelta(days=1)
+                filters.append(Document.document_date < end_exclusive)
             
             if search_params.status is not None:
                 filters.append(Document.status == search_params.status)

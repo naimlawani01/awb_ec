@@ -27,19 +27,48 @@ class StatisticsService:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_dashboard_stats(self) -> StatisticsResponse:
-        """Get comprehensive dashboard statistics."""
+    def get_dashboard_stats(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> StatisticsResponse:
+        """Get comprehensive dashboard statistics.
+
+        Les KPI « produits » (documents, pièces, poids, CA) sont scopés sur
+        [start_date, end_date] via document_date. Si aucune période n'est
+        fournie, ils portent sur l'ensemble de la base (cumul).
+        Les compteurs de référence (contacts, compagnies, aéroports) restent
+        globaux car ils ne dépendent pas d'une période.
+        """
         today = date.today()
         week_ago = today - timedelta(days=7)
         month_ago = today - timedelta(days=30)
-        
-        # Total counts
-        total_documents = self._count_table(Document)
-        total_shipments = self._count_table(Shipment)
+
+        # KPI scopés sur la période courante
+        current = self._get_period_metrics(start_date, end_date)
+
+        # Période précédente de même durée (pour les variations)
+        previous = None
+        if start_date and end_date:
+            span_days = (end_date - start_date).days + 1
+            prev_end = start_date - timedelta(days=1)
+            prev_start = prev_end - timedelta(days=span_days - 1)
+            previous = self._get_period_metrics(prev_start, prev_end)
+
+        def _pct(cur_val: float, key: str) -> Optional[float]:
+            if not previous:
+                return None
+            prev_val = previous.get(key) or 0
+            if prev_val == 0:
+                return None
+            return round((cur_val - prev_val) / prev_val * 100, 2)
+
+        total_documents = current["documents"]
+        total_shipments = current["shipments"]
         total_contacts = self._count_table(Contact)
         total_airlines = self._count_table(UserAirline)
         total_airports = self._count_table(UserAirport)
-        
+
         # Today's documents
         documents_today = self._count_documents_since(today)
         documents_this_week = self._count_documents_since(week_ago)
@@ -58,10 +87,7 @@ class StatisticsService:
         # Growth metrics
         mom_growth = self._calculate_mom_growth()
         yoy_growth = self._calculate_yoy_growth()
-        
-        # AWB aggregated data (pieces, weight, charges)
-        awb_totals = self._get_awb_totals()
-        
+
         return StatisticsResponse(
             total_documents=total_documents,
             total_shipments=total_shipments,
@@ -77,21 +103,96 @@ class StatisticsService:
             top_origins=top_origins,
             mom_growth=mom_growth,
             yoy_growth=yoy_growth,
-            total_pieces=awb_totals.get("total_pieces", 0),
-            total_weight=awb_totals.get("total_weight", 0.0),
-            total_prepaid=awb_totals.get("total_prepaid", 0.0),
-            main_currency=awb_totals.get("main_currency", "USD"),
+            total_pieces=current["pieces"],
+            total_weight=current["weight"],
+            total_prepaid=current["prepaid"],
+            main_currency=current["currency"],
+            period_start=start_date,
+            period_end=end_date,
+            documents_change_pct=_pct(current["documents"], "documents"),
+            pieces_change_pct=_pct(current["pieces"], "pieces"),
+            weight_change_pct=_pct(current["weight"], "weight"),
+            revenue_change_pct=_pct(current["prepaid"], "prepaid"),
         )
     
-    def _get_awb_totals(self) -> Dict:
-        """Calculate aggregated totals from parsed AWB data."""
+    def _get_period_metrics(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> Dict:
+        """Métriques KPI d'une période (documents, expéditions, pièces, poids, CA).
+
+        Si start_date et end_date sont None, porte sur toute la base.
+        """
+        if start_date is None and end_date is None:
+            documents = self._count_table(Document)
+            shipments = self._count_table(Shipment)
+        else:
+            documents = self._count_documents_range(start_date, end_date)
+            shipments = self._count_shipments_range(start_date, end_date)
+
+        awb = self._get_awb_totals(start_date, end_date)
+        return {
+            "documents": documents,
+            "shipments": shipments,
+            "pieces": awb["total_pieces"],
+            "weight": awb["total_weight"],
+            "prepaid": awb["total_prepaid"],
+            "currency": awb["main_currency"],
+        }
+
+    def _document_date_range_filters(
+        self,
+        column,
+        start_date: Optional[date],
+        end_date: Optional[date],
+    ) -> list:
+        """Construit les filtres de plage (borne de fin inclusive sur la journée)."""
+        filters = []
+        if start_date:
+            filters.append(column >= datetime.combine(start_date, datetime.min.time()))
+        if end_date:
+            # borne de fin inclusive : < jour suivant à minuit
+            end_exclusive = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)
+            filters.append(column < end_exclusive)
+        return filters
+
+    def _count_documents_range(
+        self, start_date: Optional[date], end_date: Optional[date]
+    ) -> int:
+        filters = self._document_date_range_filters(Document.document_date, start_date, end_date)
+        query = select(func.count(Document.id))
+        if filters:
+            query = query.where(and_(*filters))
+        return self.db.execute(query).scalar() or 0
+
+    def _count_shipments_range(
+        self, start_date: Optional[date], end_date: Optional[date]
+    ) -> int:
+        filters = self._document_date_range_filters(Shipment.shipment_date, start_date, end_date)
+        query = select(func.count(Shipment.id))
+        if filters:
+            query = query.where(and_(*filters))
+        return self.db.execute(query).scalar() or 0
+
+    def _get_awb_totals(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> Dict:
+        """Calculate aggregated totals from parsed AWB data (optionnellement scopé)."""
         total_pieces = 0
         total_weight = 0.0
         total_prepaid = 0.0
         currencies = Counter()
-        
-        # Get all documents with document_data
+
+        # Documents avec document_data, filtrés sur la période si fournie
         query = select(Document.document_data).where(Document.document_data.isnot(None))
+        range_filters = self._document_date_range_filters(
+            Document.document_date, start_date, end_date
+        )
+        if range_filters:
+            query = query.where(and_(*range_filters))
         results = self.db.execute(query).scalars().all()
         
         for doc_data in results:

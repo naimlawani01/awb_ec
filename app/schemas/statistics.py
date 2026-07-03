@@ -102,6 +102,16 @@ class StatisticsResponse(BaseModel):
     total_prepaid: Optional[float] = 0.0
     main_currency: Optional[str] = "USD"
 
+    # Période appliquée aux KPI scopés (documents, pièces, poids, CA)
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+
+    # Variations vs période précédente de même durée (en %, null si non calculable)
+    documents_change_pct: Optional[float] = None
+    pieces_change_pct: Optional[float] = None
+    weight_change_pct: Optional[float] = None
+    revenue_change_pct: Optional[float] = None
+
 
 class RevenueStats(BaseModel):
     """Revenue statistics (if charge data available)."""

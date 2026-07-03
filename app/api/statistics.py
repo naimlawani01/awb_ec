@@ -18,14 +18,19 @@ router = APIRouter()
 
 @router.get("/dashboard", response_model=StatisticsResponse)
 async def get_dashboard_statistics(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     current_user: dict = Depends(require_viewer),
     db: Session = Depends(get_awb_db),
 ):
     """
     Get comprehensive dashboard statistics.
+
+    Les KPI produits (documents, pieces, poids, CA) sont scopes sur
+    [start_date, end_date] si fournis ; sinon cumul sur toute la base.
     """
     service = StatisticsService(db)
-    return service.get_dashboard_stats()
+    return service.get_dashboard_stats(start_date, end_date)
 
 
 @router.get("/monthly-volume", response_model=MonthlyVolumeResponse)
