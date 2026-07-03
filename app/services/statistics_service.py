@@ -66,7 +66,8 @@ class StatisticsService:
         total_documents = current["documents"]
         total_shipments = current["shipments"]
         total_contacts = self._count_table(Contact)
-        total_airlines = self._count_table(UserAirline)
+        # Compagnies : déduites des préfixes AWB (la table user_airline est vide/incomplète)
+        total_airlines = self._count_distinct_airlines(start_date, end_date)
         total_airports = self._count_table(UserAirport)
 
         # Today's documents
@@ -160,7 +161,9 @@ class StatisticsService:
     def _count_documents_range(
         self, start_date: Optional[date], end_date: Optional[date]
     ) -> int:
-        filters = self._document_date_range_filters(Document.document_date, start_date, end_date)
+        # Repli sur date_created quand document_date est nul (LTA sans date de document)
+        doc_date = func.coalesce(Document.document_date, Document.date_created)
+        filters = self._document_date_range_filters(doc_date, start_date, end_date)
         query = select(func.count(Document.id))
         if filters:
             query = query.where(and_(*filters))
@@ -173,6 +176,25 @@ class StatisticsService:
         query = select(func.count(Shipment.id))
         if filters:
             query = query.where(and_(*filters))
+        return self.db.execute(query).scalar() or 0
+
+    def _count_distinct_airlines(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> int:
+        """Nombre de compagnies distinctes, déduit des préfixes AWB (3 premiers
+        chiffres du n° de document), et non de la table de référence user_airline
+        qui est souvent vide/incomplète. Cohérent avec get_airlines_stats."""
+        prefix_expr = func.left(func.trim(Document.document_number), 3)
+        filters = [
+            Document.document_number.isnot(None),
+            func.trim(Document.document_number) != '',
+            # préfixe = 3 chiffres (écarte les valeurs non conformes)
+            func.trim(Document.document_number).op('~')('^[0-9]{3}'),
+        ]
+        filters += self._document_date_range_filters(
+            func.coalesce(Document.document_date, Document.date_created), start_date, end_date
+        )
+        query = select(func.count(func.distinct(prefix_expr))).where(and_(*filters))
         return self.db.execute(query).scalar() or 0
 
     def _get_awb_totals(
@@ -189,7 +211,7 @@ class StatisticsService:
         # Documents avec document_data, filtrés sur la période si fournie
         query = select(Document.document_data).where(Document.document_data.isnot(None))
         range_filters = self._document_date_range_filters(
-            Document.document_date, start_date, end_date
+            func.coalesce(Document.document_date, Document.date_created), start_date, end_date
         )
         if range_filters:
             query = query.where(and_(*range_filters))

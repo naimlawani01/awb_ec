@@ -218,16 +218,21 @@ class DocumentService:
             if search_params.destination:
                 filters.append(Document.destination.ilike(f"%{search_params.destination}%"))
             
+            # Repli sur date_created quand document_date est absent : sinon les LTA
+            # sans « date du document » deviennent invisibles à tout filtre de période
+            # alors qu'elles ont bien une date de création dans l'intervalle.
+            doc_date = func.coalesce(Document.document_date, Document.date_created)
+
             if search_params.start_date:
-                filters.append(Document.document_date >= search_params.start_date)
-            
+                filters.append(doc_date >= search_params.start_date)
+
             if search_params.end_date:
                 # Borne de fin inclusive : couvrir toute la journée sélectionnée
-                # (document_date peut porter une heure), donc < jour suivant à minuit.
+                # (la date peut porter une heure), donc < jour suivant à minuit.
                 end_exclusive = datetime.combine(
                     search_params.end_date.date(), time.min
                 ) + timedelta(days=1)
-                filters.append(Document.document_date < end_exclusive)
+                filters.append(doc_date < end_exclusive)
             
             if search_params.status is not None:
                 filters.append(Document.status == search_params.status)
