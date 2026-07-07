@@ -1,6 +1,6 @@
 """API routes module."""
 from fastapi import APIRouter
-from app.api import auth, documents, shipments, contacts, statistics, exports, reference
+from app.api import auth, documents, shipments, contacts, statistics, exports, reference, reports
 
 api_router = APIRouter()
 
@@ -12,4 +12,5 @@ api_router.include_router(contacts.router, prefix="/contacts", tags=["Contacts"]
 api_router.include_router(statistics.router, prefix="/statistics", tags=["Statistics"])
 api_router.include_router(exports.router, prefix="/exports", tags=["Exports"])
 api_router.include_router(reference.router, prefix="/reference", tags=["Reference Data"])
+api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
 

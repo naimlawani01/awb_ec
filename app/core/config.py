@@ -35,7 +35,24 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
-    
+
+    # Email / SMTP (envoi automatique du rapport d'activite)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True  # STARTTLS sur 587 ; ignore si port 465 (SSL implicite)
+    REPORT_FROM_EMAIL: str = "info@elite-cargo.net"
+    REPORT_FROM_NAME: str = "Elite Cargo"
+    REPORT_TO_EMAILS: List[str] = [
+        "l.adani@elite-cargo.net",
+        "Abdelganijacques@elite-cargo.net",
+    ]
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.SMTP_HOST)
+
     @property
     def awb_database_url(self) -> str:
         """Construct AWB database URL from components."""
