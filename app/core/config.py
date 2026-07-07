@@ -48,6 +48,9 @@ class Settings(BaseSettings):
         "l.adani@elite-cargo.net",
         "Abdelganijacques@elite-cargo.net",
     ]
+    # Jeton secret pour déclencher l'envoi du rapport via un cron externe
+    # (Railway Function) sans JWT. Doit être identique côté backend et côté function.
+    REPORT_CRON_TOKEN: str = ""
 
     @property
     def smtp_configured(self) -> bool:
