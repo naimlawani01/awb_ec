@@ -659,173 +659,277 @@ class ExportService:
         self,
         documents: List[Document],
         stats: Dict[str, Any],
-        title: str = "Rapport AWB Détaillé"
+        title: str = "Rapport d'activite",
+        total_count: Optional[int] = None,
+        period_start=None,
+        period_end=None,
     ) -> io.BytesIO:
-        """
-        Export AWB documents with statistics to PDF.
-        """
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=landscape(A4),
-            rightMargin=30,
-            leftMargin=30,
-            topMargin=30,
-            bottomMargin=30
-        )
-        
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Custom styles
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=18,
-            spaceAfter=20,
-            alignment=1,
-            textColor=colors.HexColor('#1F4E79')
-        )
-        
-        section_style = ParagraphStyle(
-            'SectionTitle',
-            parent=styles['Heading2'],
-            fontSize=12,
-            spaceAfter=10,
-            spaceBefore=20,
-            textColor=colors.HexColor('#1F4E79')
-        )
-        
-        # Title
-        elements.append(Paragraph(title, title_style))
-        elements.append(Paragraph(
-            f"Généré le: {datetime.now().strftime('%d/%m/%Y à %H:%M')}",
-            styles['Normal']
-        ))
-        elements.append(Spacer(1, 20))
-        
-        # Parse documents for totals
-        total_pieces = 0
-        total_weight = 0
-        total_prepaid = 0
-        currencies = set()
-        
-        for doc_item in documents:
-            awb_details = AWBParser.parse(doc_item.document_data) if doc_item.document_data else None
-            if awb_details:
-                total_pieces += awb_details.total_pieces
-                total_weight += awb_details.total_weight
-                total_prepaid += awb_details.charges_summary.total_prepaid
-                if awb_details.currency:
-                    currencies.add(awb_details.currency)
-        
-        # KPIs Summary
-        elements.append(Paragraph("Résumé", section_style))
-        
-        kpi_data = [
-            ["Documents", "Pièces totales", "Poids total", "Montant total"],
-            [
-                str(len(documents)),
-                str(total_pieces),
-                f"{total_weight:,.1f} kg",
-                f"{total_prepaid:,.2f} {', '.join(currencies) if currencies else ''}"
-            ]
-        ]
-        
-        kpi_table = Table(kpi_data, colWidths=[2*inch, 2*inch, 2*inch, 2.5*inch])
-        kpi_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('FONTSIZE', (0, 1), (-1, -1), 12),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica-Bold'),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#E8F4FD')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('PADDING', (0, 0), (-1, -1), 10),
-        ]))
-        elements.append(kpi_table)
-        elements.append(Spacer(1, 20))
-        
-        # Documents table
-        elements.append(Paragraph("Détail des documents", section_style))
-        
-        # Determine main currency for header
-        main_currency = list(currencies)[0] if currencies else "USD"
-        
-        headers = ["N° AWB", "Expéditeur", "Destinataire", "Route", "Pièces", "Poids (kg)", f"Total ({main_currency})"]
-        data = [headers]
-        
-        for doc_item in documents[:50]:  # Limit to 50 for PDF
-            awb_details = AWBParser.parse(doc_item.document_data) if doc_item.document_data else None
-            
-            pieces = "-"
-            weight = "-"
-            total = "-"
-            route = "-"
-            
-            if awb_details:
-                pieces = str(awb_details.total_pieces)
-                weight = f"{awb_details.total_weight:.1f}"
-                total = f"{awb_details.charges_summary.total_prepaid:.2f}"
-                
-                # Build route from AWB details (airport codes only)
-                origin_code = awb_details.airport_departure_code or doc_item.origin or "?"
-                # Get destination from route.to if available, otherwise use doc_item.destination
-                dest_code = doc_item.destination or "?"
-                if awb_details.route.to:
-                    # Take the last destination in the route
-                    dest_code = awb_details.route.to[-1] if awb_details.route.to else dest_code
-                # Clean up: only use first 3 chars if it looks like an airport code
-                if len(origin_code) >= 3:
-                    origin_code = origin_code[:3].upper()
-                if len(dest_code) >= 3:
-                    dest_code = dest_code[:3].upper()
-                route = f"{origin_code} → {dest_code}"
-            else:
-                # Fallback to doc_item fields, but clean them up
-                origin = (doc_item.origin or "?")[:3].upper() if doc_item.origin else "?"
-                dest = (doc_item.destination or "?")[:3].upper() if doc_item.destination else "?"
-                route = f"{origin} → {dest}"
-            
-            data.append([
-                doc_item.document_number or "-",
-                (doc_item.shipper or "-")[:25],
-                (doc_item.consignee or "-")[:25],
-                route,
-                pieces,
-                weight,
-                total
-            ])
-        
-        if len(documents) > 50:
-            data.append(["...", f"+ {len(documents) - 50} autres documents", "", "", "", "", ""])
-        
-        doc_table = Table(data, repeatRows=1, colWidths=[1.3*inch, 2*inch, 2*inch, 1.2*inch, 0.8*inch, 1*inch, 1*inch])
-        doc_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1F4E79')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('ALIGN', (4, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-            ('PADDING', (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(doc_table)
-        
-        # Footer
-        elements.append(Spacer(1, 30))
-        elements.append(Paragraph(
-            f"Total: {len(documents)} documents | {total_pieces} pièces | {total_weight:,.1f} kg | {total_prepaid:,.2f} {', '.join(currencies) if currencies else ''}",
-            ParagraphStyle('Footer', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#666666'))
-        ))
-        
-        doc.build(elements)
-        buffer.seek(0)
-        
-        return buffer
+        """Rapport d'activite executif (portrait A4) pour direction & comptabilite."""
+        from collections import defaultdict
+        from reportlab.platypus import PageBreak, HRFlowable
+        from app.services.statistics_service import StatisticsService
 
+        BRAND = colors.HexColor('#0c6d61')
+        BRAND_DK = colors.HexColor('#0a574e')
+        LIGHT = colors.HexColor('#e8f2f0')
+        ROW_ALT = colors.HexColor('#f5f8f7')
+        GREY = colors.HexColor('#5b6b7f')
+        INK = colors.HexColor('#13273b')
+        LINE = colors.HexColor('#dbe4e1')
+        WHITE = colors.white
+
+        STATUS_FR = {0: "Brouillon", 1: "Actif", 2: "Complété", 3: "Annulé", 4: "Archivé"}
+
+        def fi(v):
+            try:
+                return f"{int(round(float(v))):,}".replace(",", " ")
+            except Exception:
+                return "0"
+
+        def fm(v):
+            try:
+                return f"{float(v):,.2f}".replace(",", "§").replace(".", ",").replace("§", " ")
+            except Exception:
+                return "0,00"
+
+        def fp(v):
+            try:
+                return f"{float(v):.1f}".replace(".", ",")
+            except Exception:
+                return "0,0"
+
+        # ---------- Agregation ----------
+        recs = []
+        for d in documents:
+            awb = AWBParser.parse(d.document_data) if d.document_data else None
+            num = (d.document_number or '').strip()
+            prefix = num[:3] if (len(num) >= 3 and num[:3].isdigit()) else None
+            pieces = awb.total_pieces if awb else 0
+            weight = float(awb.total_weight) if awb else 0.0
+            prepaid = float(awb.charges_summary.total_prepaid) if awb else 0.0
+            currency = (awb.currency if (awb and awb.currency) else '')
+            dest = (d.destination or '').strip()
+            if awb and getattr(awb, 'route', None) and awb.route.to:
+                dest = (awb.route.to[-1] or dest)
+            dest = (dest[:3].upper() if dest else '-')
+            origin = (d.origin or '')
+            if awb and getattr(awb, 'airport_departure_code', None):
+                origin = awb.airport_departure_code or origin
+            origin = (origin[:3].upper() if origin else '-')
+            shipper = ((d.shipper or '').strip() or '-')
+            recs.append(dict(num=(num or '-'), prefix=prefix, pieces=pieces, weight=weight,
+                             prepaid=prepaid, currency=currency, dest=dest, origin=origin,
+                             shipper=shipper, consignee=(d.consignee or '-'), status=d.status))
+
+        tot_pieces = sum(r['pieces'] for r in recs)
+        tot_weight = sum(r['weight'] for r in recs)
+        tot_revenue = sum(r['prepaid'] for r in recs)
+        currencies = {r['currency'] for r in recs if r['currency']}
+        main_cur = (stats.get('main_currency') or (sorted(currencies)[0] if currencies else 'USD'))
+        n_docs = total_count if total_count is not None else len(recs)
+        base = len(recs) or 1
+
+        by_air = defaultdict(lambda: {'count': 0, 'rev': 0.0})
+        by_dest = defaultdict(lambda: {'count': 0, 'rev': 0.0})
+        by_client = defaultdict(lambda: {'count': 0, 'rev': 0.0})
+        by_status = defaultdict(int)
+        for r in recs:
+            if r['prefix']:
+                by_air[r['prefix']]['count'] += 1
+                by_air[r['prefix']]['rev'] += r['prepaid']
+            by_dest[r['dest']]['count'] += 1
+            by_dest[r['dest']]['rev'] += r['prepaid']
+            by_client[r['shipper']]['count'] += 1
+            by_client[r['shipper']]['rev'] += r['prepaid']
+            by_status[r['status']] += 1
+
+        # ---------- Document ----------
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                                rightMargin=40, leftMargin=40, topMargin=42, bottomMargin=50,
+                                title=title, author="Elite Cargo")
+        avail = doc.width
+
+        styles = getSampleStyleSheet()
+        st_title = ParagraphStyle('t', parent=styles['Normal'], fontSize=17, leading=20, textColor=INK)
+        h_sec = ParagraphStyle('sec', parent=styles['Heading2'], fontSize=12, leading=15,
+                               textColor=BRAND_DK, spaceAfter=2, spaceBefore=2, fontName='Helvetica-Bold')
+        p_small = ParagraphStyle('small', parent=styles['Normal'], fontSize=8, textColor=GREY, leading=11)
+        p_cell = ParagraphStyle('pcell', parent=styles['Normal'], fontSize=8.5, textColor=INK, leading=11)
+
+        el = []
+
+        # En-tete bandeau
+        header_left = Paragraph(
+            '<font size=15 color="#ffffff"><b>ELITE CARGO</b></font><br/>'
+            '<font size=8 color="#d5ece7">Gestion de fret aérien · AWB</font>', styles['Normal'])
+        header_right = Paragraph(
+            '<para align="right"><font size=8 color="#d5ece7">Édité le</font><br/>'
+            f'<font size=10 color="#ffffff"><b>{datetime.now().strftime("%d/%m/%Y à %Hh%M")}</b></font></para>',
+            styles['Normal'])
+        band = Table([[header_left, header_right]], colWidths=[avail * 0.60, avail * 0.40])
+        band.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), BRAND),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 14),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+            ('TOPPADDING', (0, 0), (-1, -1), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ]))
+        el.append(band)
+        el.append(Spacer(1, 14))
+
+        if period_start and period_end:
+            per = f"Période : du {period_start.strftime('%d/%m/%Y')} au {period_end.strftime('%d/%m/%Y')}"
+        elif period_start:
+            per = f"Période : depuis le {period_start.strftime('%d/%m/%Y')}"
+        elif period_end:
+            per = f"Période : jusqu'au {period_end.strftime('%d/%m/%Y')}"
+        else:
+            per = "Période : toutes les données (cumul)"
+        el.append(Paragraph(f'<b>{title}</b>', st_title))
+        el.append(Paragraph(per, p_small))
+        el.append(Spacer(1, 14))
+
+        # Synthese KPI
+        def delta_txt(pct):
+            if pct is None:
+                return '<font size=7 color="#5b6b7f">n/c vs préc.</font>'
+            col = '#059669' if pct >= 0 else '#dc2626'
+            sign = '+' if pct >= 0 else ''
+            return f'<font size=7 color="{col}">{sign}{fp(pct)} % vs préc.</font>'
+
+        kpi_lab = ParagraphStyle('kl', parent=styles['Normal'], fontSize=7, textColor=GREY, leading=9, spaceAfter=5)
+        kpi_val = ParagraphStyle('kv', parent=styles['Normal'], fontSize=17, textColor=INK, leading=20, fontName='Helvetica-Bold', spaceAfter=4)
+        kpi_del = ParagraphStyle('kd', parent=styles['Normal'], fontSize=7, leading=9)
+
+        def kpi_cell(label, value, pct):
+            return [Paragraph(label, kpi_lab), Paragraph(value, kpi_val), Paragraph(delta_txt(pct), kpi_del)]
+
+        kpi = [[
+            kpi_cell("CHIFFRE D'AFFAIRES", f"{fi(tot_revenue)} {main_cur}", stats.get('revenue_change_pct')),
+            kpi_cell("LTA (DOCUMENTS)", fi(n_docs), stats.get('documents_change_pct')),
+            kpi_cell("POIDS TOTAL", f"{fm(tot_weight / 1000)} t", stats.get('weight_change_pct')),
+            kpi_cell("PIÈCES", fi(tot_pieces), stats.get('pieces_change_pct')),
+        ]]
+        kt = Table(kpi, colWidths=[avail / 4.0] * 4)
+        kt.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), LIGHT),
+            ('BOX', (0, 0), (-1, -1), 0.5, LINE),
+            ('INNERGRID', (0, 0), (-1, -1), 1.5, WHITE),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 11),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        el.append(kt)
+        el.append(Spacer(1, 6))
+        el.append(Paragraph(
+            f"CA = total prépayé porté sur les LTA de la période (devise principale {main_cur}). "
+            "Évolution comparée à la période précédente de même durée.", p_small))
+        el.append(Spacer(1, 16))
+
+        def section(txt):
+            el.append(Paragraph(txt, h_sec))
+            el.append(HRFlowable(width='100%', thickness=1, color=BRAND, spaceBefore=2, spaceAfter=8))
+
+        def styled_table(header, rows, widths, right_from=1):
+            t = Table([header] + rows, colWidths=widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), BRAND),
+                ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+                ('TEXTCOLOR', (0, 1), (-1, -1), INK),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [WHITE, ROW_ALT]),
+                ('LINEBELOW', (0, 0), (-1, -1), 0.4, LINE),
+                ('ALIGN', (right_from, 0), (-1, -1), 'RIGHT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 7),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 7),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            return t
+
+        # Compagnies
+        section("Répartition par compagnie aérienne")
+        air_sorted = sorted(by_air.items(), key=lambda kv: kv[1]['rev'], reverse=True)[:8]
+        rows = [[Paragraph(f"{StatisticsService.AIRLINE_PREFIXES.get(pfx, 'Compagnie (' + pfx + ')')} ({pfx})", p_cell),
+                 fi(v['count']), f"{fp(v['count'] / base * 100)} %", f"{fi(v['rev'])} {main_cur}"]
+                for pfx, v in air_sorted] or [[Paragraph("-", p_cell), "0", "0,0 %", f"0 {main_cur}"]]
+        el.append(styled_table(["Compagnie", "LTA", "Part", f"CA ({main_cur})"], rows,
+                               [avail * 0.46, avail * 0.13, avail * 0.16, avail * 0.25]))
+        el.append(Spacer(1, 14))
+
+        # Destinations
+        section("Principales destinations")
+        dest_sorted = sorted(by_dest.items(), key=lambda kv: kv[1]['count'], reverse=True)[:8]
+        rows = [[Paragraph(dst, p_cell), fi(v['count']), f"{fp(v['count'] / base * 100)} %", f"{fi(v['rev'])} {main_cur}"]
+                for dst, v in dest_sorted] or [[Paragraph("-", p_cell), "0", "0,0 %", f"0 {main_cur}"]]
+        el.append(styled_table(["Destination", "LTA", "Part", f"CA ({main_cur})"], rows,
+                               [avail * 0.46, avail * 0.13, avail * 0.16, avail * 0.25]))
+        el.append(Spacer(1, 14))
+
+        # Clients
+        section("Principaux clients (expéditeurs)")
+        cl_sorted = sorted(by_client.items(), key=lambda kv: kv[1]['rev'], reverse=True)[:8]
+        rows = [[Paragraph(name[:42], p_cell), fi(v['count']), f"{fi(v['rev'])} {main_cur}"]
+                for name, v in cl_sorted] or [[Paragraph("-", p_cell), "0", f"0 {main_cur}"]]
+        el.append(styled_table(["Client", "LTA", f"CA ({main_cur})"], rows,
+                               [avail * 0.60, avail * 0.16, avail * 0.24]))
+        el.append(Spacer(1, 14))
+
+
+        # Annexe detail
+        el.append(PageBreak())
+        section("Annexe — Détail des LTA")
+        shown = min(len(recs), 60)
+        note = f"{shown} LTA affichées" + (f" sur {n_docs}." if n_docs > 60 else ".")
+        el.append(Paragraph(note, p_small))
+        el.append(Spacer(1, 6))
+        det_rows = []
+        for r in recs[:60]:
+            det_rows.append([
+                r['num'],
+                Paragraph((r['shipper'] or '-')[:26], p_cell),
+                Paragraph((r['consignee'] or '-')[:26], p_cell),
+                f"{r['origin']} > {r['dest']}",
+                fi(r['pieces']), fm(r['weight']), fi(r['prepaid'])])
+        if not det_rows:
+            det_rows = [["-", Paragraph("-", p_cell), Paragraph("-", p_cell), "-", "0", "0,00", "0"]]
+        det = Table([["N° AWB", "Expéditeur", "Destinataire", "Route", "Pièces", "Poids", f"CA {main_cur}"]] + det_rows,
+                    repeatRows=1,
+                    colWidths=[avail * 0.16, avail * 0.21, avail * 0.21, avail * 0.15, avail * 0.08, avail * 0.10, avail * 0.09])
+        det.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), BRAND),
+            ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+            ('TEXTCOLOR', (0, 1), (-1, -1), INK),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [WHITE, ROW_ALT]),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.4, LINE),
+            ('ALIGN', (4, 0), (-1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        el.append(det)
+
+        def _footer(canvas, doc_):
+            canvas.saveState()
+            canvas.setStrokeColor(LINE)
+            canvas.setLineWidth(0.5)
+            canvas.line(doc.leftMargin, 36, A4[0] - doc.rightMargin, 36)
+            canvas.setFont('Helvetica', 7.5)
+            canvas.setFillColor(GREY)
+            canvas.drawString(doc.leftMargin, 26, "Elite Cargo · Rapport d'activité · Document confidentiel")
+            canvas.drawRightString(A4[0] - doc.rightMargin, 26, f"Page {doc_.page}")
+            canvas.restoreState()
+
+        doc.build(el, onFirstPage=_footer, onLaterPages=_footer)
+        buffer.seek(0)
+        return buffer

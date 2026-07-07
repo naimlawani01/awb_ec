@@ -393,25 +393,23 @@ async def export_detailed_report_pdf(
     
     doc_service = DocumentService(awb_db)
     documents, total = doc_service.get_documents(1, limit, search_params)
-    
+
+    # Stats scopées sur la même période (KPIs + variations vs période précédente)
     stats_service = StatisticsService(awb_db)
-    stats = stats_service.get_dashboard_stats()
-    
+    stats = stats_service.get_dashboard_stats(
+        start_date.date() if start_date else None,
+        end_date.date() if end_date else None,
+    )
+
     export_service = ExportService()
-    
-    # Build title with date range
-    period_info = ""
-    if start_date and end_date:
-        period_info = f" ({start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')})"
-    elif start_date:
-        period_info = f" (depuis le {start_date.strftime('%d/%m/%Y')})"
-    elif end_date:
-        period_info = f" (jusqu'au {end_date.strftime('%d/%m/%Y')})"
-    
+
     buffer = export_service.export_detailed_awb_report_pdf(
         documents,
         stats.model_dump(),
-        title=f"Rapport AWB Détaillé{period_info}"
+        title="Rapport d'activité",
+        total_count=total,
+        period_start=start_date,
+        period_end=end_date,
     )
     
     # Log export action
