@@ -4,12 +4,15 @@ Utilisé pour l'envoi du rapport d'activité à la direction et à la comptabili
 La configuration vient des variables d'environnement (voir app/core/config.py).
 """
 import ssl
+import base64
 import socket
 import smtplib
 import logging
 import contextlib
 from email.message import EmailMessage
 from typing import List, Optional
+
+import httpx
 
 from app.core.config import settings
 
@@ -37,7 +40,44 @@ def _force_ipv4():
 
 
 class EmailNotConfigured(RuntimeError):
-    """Levée quand aucun serveur SMTP n'est configuré."""
+    """Levée quand aucun moyen d'envoi (Resend ou SMTP) n'est configuré."""
+
+
+def _send_via_resend(
+    subject: str,
+    html_body: str,
+    pdf_bytes: bytes,
+    filename: str,
+    recipients: List[str],
+    text_body: Optional[str],
+) -> List[str]:
+    """Envoi via l'API HTTPS de Resend (contourne le blocage SMTP de Railway)."""
+    payload = {
+        "from": f"{settings.REPORT_FROM_NAME} <{settings.REPORT_FROM_EMAIL}>",
+        "to": recipients,
+        "subject": subject,
+        "html": html_body,
+        "text": text_body or "Veuillez trouver ci-joint le rapport d'activité.",
+        "attachments": [
+            {
+                "filename": filename,
+                "content": base64.b64encode(pdf_bytes).decode("ascii"),
+            }
+        ],
+    }
+    resp = httpx.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=30,
+    )
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Resend API {resp.status_code} : {resp.text}")
+    logger.info("Rapport envoyé via Resend à %s", ", ".join(recipients))
+    return recipients
 
 
 def send_email_with_pdf(
@@ -50,16 +90,23 @@ def send_email_with_pdf(
 ) -> List[str]:
     """Envoie un email HTML avec un PDF en pièce jointe.
 
-    Retourne la liste des destinataires. Lève EmailNotConfigured si SMTP absent.
+    Priorité à Resend (API HTTPS) si RESEND_API_KEY est défini ; sinon SMTP.
+    Retourne la liste des destinataires. Lève EmailNotConfigured si rien n'est configuré.
     """
     recipients = [e.strip() for e in (to_emails or settings.REPORT_TO_EMAILS) if e and e.strip()]
-    if not settings.smtp_configured:
-        raise EmailNotConfigured(
-            "SMTP non configuré : renseignez SMTP_HOST (et SMTP_USER/SMTP_PASSWORD) dans .env"
-        )
     if not recipients:
         raise ValueError("Aucun destinataire fourni.")
+    if not settings.email_configured:
+        raise EmailNotConfigured(
+            "Aucun envoi configuré : définissez RESEND_API_KEY (recommandé) "
+            "ou SMTP_HOST/SMTP_USER/SMTP_PASSWORD dans .env"
+        )
 
+    # Resend en priorité (HTTPS, non bloqué sur Railway)
+    if settings.RESEND_API_KEY:
+        return _send_via_resend(subject, html_body, pdf_bytes, filename, recipients, text_body)
+
+    # Repli SMTP
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{settings.REPORT_FROM_NAME} <{settings.REPORT_FROM_EMAIL}>"

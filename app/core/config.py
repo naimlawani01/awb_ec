@@ -52,9 +52,17 @@ class Settings(BaseSettings):
     # (Railway Function) sans JWT. Doit être identique côté backend et côté function.
     REPORT_CRON_TOKEN: str = ""
 
+    # Resend (API email HTTPS) - recommandé sur Railway (le SMTP sortant y est bloqué).
+    # Si RESEND_API_KEY est défini, l'envoi passe par Resend au lieu du SMTP.
+    RESEND_API_KEY: str = ""
+
     @property
     def smtp_configured(self) -> bool:
         return bool(self.SMTP_HOST)
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.RESEND_API_KEY) or self.smtp_configured
 
     @property
     def awb_database_url(self) -> str:
